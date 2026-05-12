@@ -1,11 +1,11 @@
 CREATE TABLE users (
     id UUID PRIMARY KEY,
 
-    oauth_provider CHAR(50) NOT NULL,
-    oauth_id CHAR(255) NOT NULL,
+    oauth_provider VARCHAR(50) NOT NULL,
+    oauth_id VARCHAR(255) NOT NULL,
 
-    email CHAR(255) NOT NULL,
-    name CHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -16,7 +16,7 @@ CREATE TABLE users (
 CREATE TABLE categories (
     id UUID PRIMARY KEY,
 
-    name CHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -32,7 +32,7 @@ CREATE TABLE spends (
     description TEXT,
 
     amount NUMERIC(15, 2) NOT NULL,
-    currency CHAR(10) NOT NULL,
+    currency VARCHAR(10) NOT NULL,
 
     image_path TEXT,
     spend_date DATE NOT NULL,
