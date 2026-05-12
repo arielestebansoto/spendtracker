@@ -1,0 +1,58 @@
+CREATE TABLE users (
+    id UUID PRIMARY KEY,
+
+    oauth_provider CHAR(50) NOT NULL,
+    oauth_id CHAR(255) NOT NULL,
+
+    email CHAR(255) NOT NULL,
+    name CHAR(255) NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_users_oauth UNIQUE (oauth_provider, oauth_id),
+    CONSTRAINT uq_users_email UNIQUE (email)
+);
+
+CREATE TABLE categories (
+    id UUID PRIMARY KEY,
+
+    name CHAR(100) NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_categories_name UNIQUE (name)
+);
+
+CREATE TABLE spends (
+    id UUID PRIMARY KEY,
+
+    user_id UUID NOT NULL,
+    category_id UUID NOT NULL,
+
+    description TEXT,
+
+    amount NUMERIC(15, 2) NOT NULL,
+    currency CHAR(10) NOT NULL,
+
+    image_path TEXT,
+    spend_date DATE NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_spends_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id),
+
+    CONSTRAINT fk_spends_category
+        FOREIGN KEY (category_id)
+        REFERENCES categories(id)
+);
+
+CREATE INDEX idx_spends_user_id
+    ON spends(user_id);
+
+CREATE INDEX idx_spends_category_id
+    ON spends(category_id);
+
+CREATE INDEX idx_spends_spend_date
+    ON spends(spend_date);
