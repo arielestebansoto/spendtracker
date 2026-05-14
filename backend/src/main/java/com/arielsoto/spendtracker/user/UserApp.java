@@ -9,7 +9,14 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
-@Table(name = "users")
+@Table(
+    name = "users",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            columnNames = {"oauth_provider", "oauth_id"}
+        )
+    }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,13 +28,14 @@ public class UserApp {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "oauth_provider", nullable = false, length = 50)
-    private String oauthProvider;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "oauth_provider", nullable = false)
+    private OAuthProvider oauthProvider;
 
     @Column(name = "oauth_id", nullable = false, length = 255)
     private String oauthId;
 
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(length = 255)
     private String email;
 
     @Column(nullable = false, length = 255)
