@@ -24,4 +24,5 @@ spring:
               - email
 logging:
   level:
+    org.hibernate.SQL: DEBUG
     org.springframework.security: TRACE
