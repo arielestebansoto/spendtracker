@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface UserAppRepository extends JpaRepository<UserApp, UUID>{
     
     Optional<UserApp> findByOauthProviderAndOauthId(
-        String oauthProvider,
+        OAuthProvider oauthProvider,
         String oauthId
     );
 
