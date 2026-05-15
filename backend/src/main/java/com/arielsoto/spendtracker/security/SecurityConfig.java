@@ -16,6 +16,8 @@ public class SecurityConfig {
     
     private final CustomOAuth2UserService customOAuth2UserService;
 
+    private final CustomOidcUserService customOidcUserService;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
@@ -25,8 +27,9 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .oauth2Login(oauth -> oauth
-                .userInfoEndpoint(userInfo ->
-                    userInfo.userService(customOAuth2UserService)
+                .userInfoEndpoint(userInfo -> userInfo
+                    .userService(customOAuth2UserService)
+                    .oidcUserService(customOidcUserService)
                 )
             )
             .build();
