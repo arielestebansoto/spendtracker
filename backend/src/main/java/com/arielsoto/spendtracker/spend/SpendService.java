@@ -126,4 +126,16 @@ public class SpendService {
             spend.getCreatedAt()
         );
     }
+
+    @Transactional
+    public void delete(
+        UUID id,
+        UUID userId
+    ) {
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow(() -> new RuntimeException("Spend not found"));
+
+        spendRepository.delete(spend);
+    }
 }
