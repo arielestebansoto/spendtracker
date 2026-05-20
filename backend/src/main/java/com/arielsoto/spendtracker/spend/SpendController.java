@@ -1,6 +1,11 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.util.UUID;
+
+import org.springframework.security.core.parameters.P;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -9,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
+import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.validation.Valid;
@@ -22,6 +28,17 @@ public class SpendController {
     private final SpendService spendService;
     private final AuthenticatedUserService authenticatedUserService;
     
+    @GetMapping("/{id}")
+    public SpendDetailResponse findById(
+        @PathVariable("id") UUID id,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        return spendService.findByIdAndUserId(id, user.getId());
+    }
+
     @PostMapping
     public CreateSpendResponse create(
         @RequestBody @Valid CreateSpendRequest request,

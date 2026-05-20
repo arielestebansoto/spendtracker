@@ -1,11 +1,15 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.util.Optional;
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
+import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import lombok.RequiredArgsConstructor;
@@ -16,6 +20,26 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
+
+    public SpendDetailResponse findByIdAndUserId(
+        UUID id,
+        UUID userId
+    ) {
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow();
+
+        return new SpendDetailResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getCurrency(),
+            spend.getSpendDate(),
+            spend.getCreatedAt()
+        );
+    }
 
     public CreateSpendResponse create(
         CreateSpendRequest request,
