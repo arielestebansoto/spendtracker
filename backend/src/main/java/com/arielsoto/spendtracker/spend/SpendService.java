@@ -12,8 +12,10 @@ import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
+import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
 import com.arielsoto.spendtracker.user.UserApp;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -89,6 +91,39 @@ public class SpendService {
             saved.getAmount(),
             saved.getCurrency(),
             saved.getSpendDate()
+        );
+    }
+
+    @Transactional
+    public SpendDetailResponse update(
+        UUID id,
+        UpdateSpendRequest request,
+        UUID userId
+    ) {
+
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow(() -> new RuntimeException("Spend not found"));
+
+        Category category = categoryRepository
+            .findById(request.categoryId())
+            .orElseThrow(() -> new RuntimeException("Category not found"));
+
+        spend.setCategory(category);
+        spend.setDescription(request.description());
+        spend.setAmount(request.amount());
+        spend.setCurrency(request.currency());
+        spend.setSpendDate(request.spendDate());
+
+        return new SpendDetailResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getCurrency(),
+            spend.getSpendDate(),
+            spend.getCreatedAt()
         );
     }
 }
