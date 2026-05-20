@@ -2,6 +2,8 @@ package com.arielsoto.spendtracker.spend;
 
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.arielsoto.spendtracker.category.Category;
@@ -9,6 +11,7 @@ import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
+import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import lombok.RequiredArgsConstructor;
@@ -38,6 +41,24 @@ public class SpendService {
             spend.getSpendDate(),
             spend.getCreatedAt()
         );
+    }
+
+    public Page<SpendListItemResponse> findAllByUserId(
+        UUID userId,
+        Pageable pageable
+    ) {
+        return spendRepository
+            .findAllByUserId(userId, pageable)
+            .map( s -> {
+                return new SpendListItemResponse(
+                    s.getId(),
+                    s.getCategory().getName(),
+                    s.getAmount(),
+                    s.getCurrency(),
+                    s.getSpendDate(),
+                    s.getDescription()
+                );
+            });
     }
 
     public CreateSpendResponse create(
