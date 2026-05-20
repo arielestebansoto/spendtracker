@@ -1,25 +1,17 @@
-package com.arielsoto.spendtracker.spend;
-
-import jakarta.validation.constraints.*;
+package com.arielsoto.spendtracker.spend.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+
 import java.util.UUID;
 
-public record CreateSpendRequest(
-    @NotNull
+public record CreateSpendResponse(
+    UUID id,
     UUID categoryId,
-
+    String category,
     String description,
-
-    @NotNull
-    @DecimalMin("0.01")
     BigDecimal amount,
-
-    @NotBlank
     String currency,
-
-    @NotNull
     LocalDate spendDate
 ) {
     

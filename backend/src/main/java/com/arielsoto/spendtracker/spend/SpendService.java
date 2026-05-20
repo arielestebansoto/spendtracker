@@ -4,6 +4,8 @@ import org.springframework.stereotype.Service;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
+import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import lombok.RequiredArgsConstructor;
@@ -15,7 +17,7 @@ public class SpendService {
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
 
-    public SpendResponse create(
+    public CreateSpendResponse create(
         CreateSpendRequest request,
         UserApp user
     ) {
@@ -35,7 +37,7 @@ public class SpendService {
 
         Spend saved = spendRepository.save(spend);
 
-        return new SpendResponse(
+        return new CreateSpendResponse(
             saved.getId(),
             saved.getCategory().getId(),
             saved.getCategory().getName(),

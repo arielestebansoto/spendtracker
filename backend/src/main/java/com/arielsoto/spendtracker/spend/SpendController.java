@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
+import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
+import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.validation.Valid;
@@ -21,7 +23,7 @@ public class SpendController {
     private final AuthenticatedUserService authenticatedUserService;
     
     @PostMapping
-    public SpendResponse create(
+    public CreateSpendResponse create(
         @RequestBody @Valid CreateSpendRequest request,
         OAuth2AuthenticationToken authentication
     ) {
