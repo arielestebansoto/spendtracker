@@ -18,41 +18,38 @@ public class LocalFileStorageService implements FileStorageService {
     private String storagePath;
 
     @Override
-    public StoredFile store(MultipartFile file) {
+    public StoredFile store(
+        MultipartFile file,
+        String key
+    ) {
         try {
-            String extension = getExtension(file.getOriginalFilename());
+            Path target = Paths.get(
+                storagePath,
+                key
+            );
 
-            String filename = UUID.randomUUID() + "." + extension;
-
-            Path target = Paths.get(storagePath, filename);
-
-            Files.createDirectories(target.getParent());
+            Files.createDirectories(
+                target.getParent()
+            );
 
             Files.copy(
                 file.getInputStream(),
                 target,
-                StandardCopyOption.REPLACE_EXISTING 
+                StandardCopyOption.REPLACE_EXISTING
             );
-            
+
             return new StoredFile(
-                filename,
-                "/uploads/" + filename,
+                key,
+                key,
                 file.getContentType(),
                 file.getSize()
             );
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to store file", e);
-        }
-    }
-    
-    private String getExtension(String filename) {
-        if (filename == null || !filename.contains(".")) {
-            return "bin";
-        }
 
-        return filename.substring(
-            filename.lastIndexOf(".") + 1
-        );
-    }
-    
+        } catch (IOException e) {
+            throw new RuntimeException(
+                "Failed to store file",
+                e
+            );
+        }
+    }    
 }

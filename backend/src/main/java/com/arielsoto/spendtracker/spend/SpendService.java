@@ -14,7 +14,7 @@ import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
-import com.arielsoto.spendtracker.storage.FileStorageService;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 
@@ -27,7 +27,7 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
-    private final FileStorageService fileStorageService;
+    private final SpendReceiptStorageService spendReceiptStorageService;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -82,8 +82,7 @@ public class SpendService {
         String receiptKey = null;
 
         if (receipt != null && !receipt.isEmpty()) {
-            StoredFile storedFile = fileStorageService.store(receipt);
-
+            StoredFile storedFile = spendReceiptStorageService.store(user, receipt);
             receiptKey = storedFile.key();
         }
 
