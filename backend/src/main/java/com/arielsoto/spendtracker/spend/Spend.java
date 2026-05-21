@@ -42,8 +42,8 @@ public class Spend {
     @Column(nullable = false, length = 10)
     private String currency;
 
-    @Column(name = "image_path", columnDefinition = "TEXT")
-    private String imagePath;
+    @Column(name = "receipt_key", columnDefinition = "TEXT")
+    private String receiptKey;
 
     @Column(name = "spend_date", nullable = false)
     private LocalDate spendDate;

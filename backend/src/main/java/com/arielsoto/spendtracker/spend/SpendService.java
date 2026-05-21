@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
@@ -13,6 +14,8 @@ import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
+import com.arielsoto.spendtracker.storage.FileStorageService;
+import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.transaction.Transactional;
@@ -24,6 +27,7 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
+    private final FileStorageService fileStorageService;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -65,12 +69,23 @@ public class SpendService {
 
     public CreateSpendResponse create(
         CreateSpendRequest request,
+        MultipartFile receipt,
         UserApp user
     ) {
 
         Category category = categoryRepository
             .findById(request.categoryId())
-            .orElseThrow();
+            .orElseThrow(() -> new RuntimeException(
+                "Category not found: " + request.categoryId()
+            ));
+
+        String receiptKey = null;
+
+        if (receipt != null && !receipt.isEmpty()) {
+            StoredFile storedFile = fileStorageService.store(receipt);
+
+            receiptKey = storedFile.key();
+        }
 
         Spend spend = Spend.builder()
             .user(user)
@@ -79,6 +94,7 @@ public class SpendService {
             .amount(request.amount())
             .currency(request.currency())
             .spendDate(request.spendDate())
+            .receiptKey(receiptKey)
             .build();
 
         Spend saved = spendRepository.save(spend);
