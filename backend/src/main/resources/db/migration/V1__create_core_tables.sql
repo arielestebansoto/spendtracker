@@ -33,7 +33,7 @@ CREATE TABLE spends (
     amount NUMERIC(15, 2) NOT NULL,
     currency VARCHAR(10) NOT NULL,
 
-    image_path TEXT,
+    receipt_key TEXT,
     spend_date DATE NOT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

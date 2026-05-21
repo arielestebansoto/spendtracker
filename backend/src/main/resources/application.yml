@@ -10,3 +10,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: America/Argentina/Buenos_Aires
+
+app:
+  storage:
+    local:
+      path: uploads
