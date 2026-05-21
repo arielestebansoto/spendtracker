@@ -39,7 +39,6 @@ public class LocalFileStorageService implements FileStorageService {
 
             return new StoredFile(
                 key,
-                key,
                 file.getContentType(),
                 file.getSize()
             );
