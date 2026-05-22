@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+
 @Service
 public class LocalFileStorageService implements FileStorageService {
 
@@ -49,5 +52,16 @@ public class LocalFileStorageService implements FileStorageService {
                 e
             );
         }
-    }    
+    } 
+    
+    @Override
+    public Resource load(String key) {
+
+        Path path = Paths.get(
+            storagePath,
+            key
+        );
+
+        return new FileSystemResource(path);
+    }
 }

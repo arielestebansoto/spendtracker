@@ -34,6 +34,8 @@ CREATE TABLE spends (
     currency VARCHAR(10) NOT NULL,
 
     receipt_key TEXT,
+    receipt_content_type VARCHAR(20),
+
     spend_date DATE NOT NULL,
 
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

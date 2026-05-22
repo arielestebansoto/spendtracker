@@ -2,6 +2,8 @@ package com.arielsoto.spendtracker.storage;
 
 import java.util.UUID;
 
+import org.springframework.core.io.Resource;
+
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -53,5 +55,9 @@ public class SpendReceiptStorageService {
         return filename.substring(
             filename.lastIndexOf(".") + 1
         );
+    }
+
+    public Resource getResource(String key) {
+        return fileStorageService.load(key);
     }
 }

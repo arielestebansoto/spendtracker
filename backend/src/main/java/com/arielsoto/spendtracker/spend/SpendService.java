@@ -2,6 +2,8 @@ package com.arielsoto.spendtracker.spend;
 
 import java.util.UUID;
 
+import org.springframework.core.io.Resource;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.storage.StoredFile;
+import com.arielsoto.spendtracker.storage.StoredResource;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.transaction.Transactional;
@@ -45,7 +48,8 @@ public class SpendService {
             spend.getAmount(),
             spend.getCurrency(),
             spend.getSpendDate(),
-            spend.getCreatedAt()
+            spend.getCreatedAt(),
+            spend.receiptUrl()
         );
     }
 
@@ -80,10 +84,12 @@ public class SpendService {
             ));
 
         String receiptKey = null;
-
+        String contentType = null;
+        
         if (receipt != null && !receipt.isEmpty()) {
             StoredFile storedFile = spendReceiptStorageService.store(user, receipt);
             receiptKey = storedFile.key();
+            contentType = storedFile.contentType();
         }
 
         Spend spend = Spend.builder()
@@ -94,6 +100,7 @@ public class SpendService {
             .currency(request.currency())
             .spendDate(request.spendDate())
             .receiptKey(receiptKey)
+            .receiptContentType(contentType)
             .build();
 
         Spend saved = spendRepository.save(spend);
@@ -106,6 +113,32 @@ public class SpendService {
             saved.getAmount(),
             saved.getCurrency(),
             saved.getSpendDate()
+        );
+    }
+
+    public StoredResource findReceiptResource(
+        UUID id,
+        UUID userId
+    ) {
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow(() -> new RuntimeException(
+                "Spend not found"
+            ));
+
+        if (spend.getReceiptKey() == null) {
+            throw new RuntimeException(
+                "Spend has no receipt"
+            );
+        }
+
+
+        Resource resource = spendReceiptStorageService
+            .getResource(spend.getReceiptKey());
+
+        return new StoredResource(
+            resource,
+            spend.getReceiptContentType()
         );
     }
 
@@ -138,7 +171,8 @@ public class SpendService {
             spend.getAmount(),
             spend.getCurrency(),
             spend.getSpendDate(),
-            spend.getCreatedAt()
+            spend.getCreatedAt(),
+            spend.receiptUrl()
         );
     }
 
