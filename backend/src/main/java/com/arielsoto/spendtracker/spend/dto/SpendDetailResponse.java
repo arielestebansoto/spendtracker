@@ -13,6 +13,7 @@ public record SpendDetailResponse(
     BigDecimal amount,
     String currency,
     LocalDate spendDate,
-    LocalDateTime createdAt
+    LocalDateTime createdAt,
+    String receiptUrl
 ) {
 }

@@ -42,8 +42,11 @@ public class Spend {
     @Column(nullable = false, length = 10)
     private String currency;
 
-    @Column(name = "image_path", columnDefinition = "TEXT")
-    private String imagePath;
+    @Column(name = "receipt_key", columnDefinition = "TEXT")
+    private String receiptKey;
+
+    @Column(name = "receipt_content_type", length = 20)
+    private String receiptContentType;
 
     @Column(name = "spend_date", nullable = false)
     private LocalDate spendDate;
@@ -51,4 +54,14 @@ public class Spend {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    public String receiptUrl() {
+        String receiptUrl = null;
+
+        if (this.getReceiptKey() != null) {
+            receiptUrl = "/api/v1/spends/" + this.getId() + "/receipt";
+        }
+
+        return receiptUrl;
+    }
 }
