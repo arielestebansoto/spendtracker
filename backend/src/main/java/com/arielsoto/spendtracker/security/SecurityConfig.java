@@ -58,8 +58,19 @@ public class SecurityConfig {
                     .userService(customOAuth2UserService)
                     .oidcUserService(customOidcUserService)
                 )
+                .defaultSuccessUrl(
+                    oauth2DefaultSuccessUrl,
+                    true
+                )
             )
-
+            
+            .logout(logout -> logout
+                .logoutUrl(logoutUrl)
+                .logoutSuccessHandler((request, response, authentication) -> {
+                    response.setStatus(HttpServletResponse.SC_OK);
+                })
+            )
+            
             .build();
     }
 
