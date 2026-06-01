@@ -42,7 +42,7 @@ export default function DashboardPage() {
 
         await logout();
 
-        router.replace("/login");
+        router.replace("/");
     }
 
     if (isLoading) {
