@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { initializeSession, logout } from "../lib/auth";
+import Navbar from "../components/Navbar";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -112,24 +113,14 @@ export default function DashboardPage() {
 
     return (
         <div className="max-w-6xl mx-auto p-6">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold">
-                        Dashboard
-                    </h1>
+            <Navbar 
+                userName={user.name}
+                onLogout={handleLogout}
+            />
 
-                    <p className="mt-2">
-                        Welcome {user.name}
-                    </p>
-                </div>
-
-                <button
-                    onClick={handleLogout}
-                    className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition"
-                >
-                    Logout
-                </button>
-            </div>
+            <h1 className="text-3xl font-bold">
+                Dashboard
+            </h1>
 
             <div className="flex justify-between items-center mb-6">
                 <p>

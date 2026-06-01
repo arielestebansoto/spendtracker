@@ -1,5 +1,7 @@
 "use client";
 
+import Navbar from "./components/Navbar";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function HomePage() {
@@ -13,17 +15,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navbar */}
-      <header className="border-b">
-        <div className="container mx-auto px-6 h-16 flex items-center">
-          <a
-            href="/"
-            className="text-lg font-semibold"
-          >
-            Spend Tracker AI
-          </a>
-        </div>
-      </header>
+      <Navbar />
 
       {/* Hero */}
       <main className="flex items-center justify-center px-6">
