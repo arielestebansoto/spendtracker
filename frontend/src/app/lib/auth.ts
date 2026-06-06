@@ -1,5 +1,4 @@
 import { apiFetch } from "./api";
-const API_CSRF_URL = process.env.NEXT_PUBLIC_API_CSRF_URL;
 
 export async function initializeSession() {
 
