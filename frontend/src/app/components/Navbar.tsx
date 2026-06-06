@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 type NavbarProps = {
     userName?: string;
     onLogout?: () => void;
@@ -12,12 +14,12 @@ export default function Navbar({
     return (
         <header className="border-b">
             <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-                <a
+                <Link
                     href="/"
                     className="text-lg font-semibold"
                 >
                     Spend Tracker AI
-                </a>
+                </Link>
 
                 {userName && onLogout && (
                     <div className="flex items-center gap-4">
