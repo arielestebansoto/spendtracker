@@ -44,6 +44,8 @@ export default function DashboardPage() {
     const [currentPage, setCurrentPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
+    const [pageSize, setPageSize] = useState(20);
+    const [deletingSpendId, setDeletingSpendId] = useState("");
 
     useEffect(() => {
         async function load() {
@@ -84,6 +86,7 @@ export default function DashboardPage() {
                 setSpends(data.content);
                 setTotalPages(data.totalPages);
                 setTotalElements(data.totalElements);
+                setPageSize(data.size);
             } catch (error) {
                 console.error(error);
             }
@@ -95,6 +98,48 @@ export default function DashboardPage() {
     async function handleLogout() {
         await logout();
         router.replace("/");
+    }
+
+    async function handleDeleteSpend(spendId: string) {
+        const confirmed = window.confirm(
+            "Are you sure you want to delete this expense?"
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        setDeletingSpendId(spendId);
+
+        try {
+            const response = await apiFetch(
+                `/api/v1/spends/${spendId}`,
+                {
+                    method: "DELETE",
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error("Failed to delete spend");
+            }
+
+            const nextTotalElements = Math.max(totalElements - 1, 0);
+
+            setSpends((current) =>
+                current.filter((spend) => spend.id !== spendId)
+            );
+            setTotalElements(nextTotalElements);
+            setTotalPages(Math.ceil(nextTotalElements / pageSize));
+
+            if (spends.length === 1 && currentPage > 0) {
+                setCurrentPage((page) => page - 1);
+            }
+        } catch (error) {
+            console.error(error);
+            window.alert("We could not delete the expense. Please try again.");
+        } finally {
+            setDeletingSpendId("");
+        }
     }
 
     if (isLoading) {
@@ -195,6 +240,18 @@ export default function DashboardPage() {
                                             className="px-3 py-1 border rounded"
                                         >
                                             Edit
+                                        </button>
+
+                                        <button
+                                            onClick={() =>
+                                                handleDeleteSpend(spend.id)
+                                            }
+                                            disabled={deletingSpendId === spend.id}
+                                            className="px-3 py-1 border rounded disabled:opacity-50"
+                                        >
+                                            {deletingSpendId === spend.id
+                                                ? "Deleting..."
+                                                : "Delete"}
                                         </button>
                                     </div>
                                 </td>
