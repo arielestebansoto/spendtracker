@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { initializeSession, logout } from "../lib/auth";
 import Navbar from "../components/Navbar";
+import { apiFetch } from "../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -68,31 +69,28 @@ export default function DashboardPage() {
             return;
         }
 
-        loadSpends(currentPage);
-    }, [user, currentPage]);
+        async function loadSpends() {
+            try {
+                const response = await apiFetch(
+                    `/api/v1/spends?page=${currentPage}`,
+                );
 
-    async function loadSpends(page: number) {
-        try {
-            const response = await fetch(
-                `${API_URL}/api/v1/spends?page=${page}`,
-                {
-                credentials: "include",
+                if (!response.ok) {
+                    throw new Error("Failed to load spends");
                 }
-            );
 
-            if (!response.ok) {
-                throw new Error("Failed to load spends");
+                const data: PageResponse<Spend> = await response.json();
+
+                setSpends(data.content);
+                setTotalPages(data.totalPages);
+                setTotalElements(data.totalElements);
+            } catch (error) {
+                console.error(error);
             }
-
-            const data: PageResponse<Spend> = await response.json();
-
-            setSpends(data.content);
-            setTotalPages(data.totalPages);
-            setTotalElements(data.totalElements);
-        } catch (error) {
-            console.error(error);
         }
-    }
+
+        loadSpends();
+    }, [user, currentPage]);
 
     async function handleLogout() {
         await logout();
