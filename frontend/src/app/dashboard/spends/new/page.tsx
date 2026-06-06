@@ -28,6 +28,24 @@ type FormState = {
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
 
+type SpendDetail = {
+    id: string;
+    categoryId: string;
+    category: string;
+    description: string;
+    amount: number;
+    currency: string;
+    spendDate: string;
+    receiptUrl: string | null;
+};
+
+type SpendFormMode = "create" | "edit";
+
+type SpendFormPageProps = {
+    mode?: SpendFormMode;
+    spendId?: string;
+};
+
 const initialFormState: FormState = {
     categoryId: "",
     description: "",
@@ -36,8 +54,12 @@ const initialFormState: FormState = {
     spendDate: new Date().toISOString().slice(0, 10),
 };
 
-export default function NewSpendPage() {
+export function SpendFormPage({
+    mode = "create",
+    spendId,
+}: SpendFormPageProps) {
     const router = useRouter();
+    const isEditing = mode === "edit";
 
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -64,14 +86,35 @@ export default function NewSpendPage() {
 
                 setUser(currentUser);
 
-                const response = await apiFetch("/api/v1/categories");
+                const [categoriesResponse, spendResponse] = await Promise.all([
+                    apiFetch("/api/v1/categories"),
+                    isEditing && spendId
+                        ? apiFetch(`/api/v1/spends/${spendId}`)
+                        : Promise.resolve(null),
+                ]);
 
-                if (!response.ok) {
+                if (!categoriesResponse.ok) {
                     throw new Error("Failed to load categories");
                 }
 
-                const data: Category[] = await response.json();
+                const data: Category[] = await categoriesResponse.json();
                 setCategories(data);
+
+                if (isEditing) {
+                    if (!spendId || !spendResponse || !spendResponse.ok) {
+                        throw new Error("Failed to load spend");
+                    }
+
+                    const spend: SpendDetail = await spendResponse.json();
+
+                    setForm({
+                        categoryId: spend.categoryId,
+                        description: spend.description ?? "",
+                        amount: String(spend.amount),
+                        currency: spend.currency,
+                        spendDate: spend.spendDate,
+                    });
+                }
             } catch (error) {
                 console.error(error);
                 setSubmitError("We could not load the form data. Please try again.");
@@ -81,7 +124,7 @@ export default function NewSpendPage() {
         }
 
         load();
-    }, [router]);
+    }, [isEditing, router, spendId]);
 
     function updateField(
         field: keyof FormState,
@@ -146,31 +189,35 @@ export default function NewSpendPage() {
                 spendDate: form.spendDate,
             };
 
-            const formData = new FormData();
-            formData.append(
-                "data",
-                new Blob(
-                    [JSON.stringify(data)],
-                    { type: "application/json" }
+            const response = isEditing
+                ? await apiFetch(
+                    `/api/v1/spends/${spendId}`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(data),
+                    }
                 )
-            );
-
-            const response = await apiFetch(
-                "/api/v1/spends",
-                {
-                    method: "POST",
-                    body: formData,
-                }
-            );
+                : await createSpend(data);
 
             if (!response.ok) {
-                throw new Error("Failed to create spend");
+                throw new Error(
+                    isEditing
+                        ? "Failed to update spend"
+                        : "Failed to create spend"
+                );
             }
 
             router.push("/dashboard");
         } catch (error) {
             console.error(error);
-            setSubmitError("We could not create the expense. Please review the data and try again.");
+            setSubmitError(
+                isEditing
+                    ? "We could not update the expense. Please review the data and try again."
+                    : "We could not create the expense. Please review the data and try again."
+            );
         } finally {
             setIsSaving(false);
         }
@@ -203,10 +250,12 @@ export default function NewSpendPage() {
             <div className="mt-8 mb-6 flex items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold">
-                        New Expense
+                        {isEditing ? "Edit Expense" : "New Expense"}
                     </h1>
                     <p className="mt-2 text-sm opacity-75">
-                        Enter the expense details. Receipt upload can be added later.
+                        {isEditing
+                            ? "You are editing this expense. Receipt changes are not available yet."
+                            : "Enter the expense details. Receipt upload can be added later."}
                     </p>
                 </div>
 
@@ -383,10 +432,43 @@ export default function NewSpendPage() {
                         disabled={isSaving || isCategoryDisabled}
                         className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition disabled:opacity-60"
                     >
-                        {isSaving ? "Saving..." : "Create Expense"}
+                        {isSaving
+                            ? "Saving..."
+                            : isEditing
+                                ? "Update Expense"
+                                : "Create Expense"}
                     </button>
                 </div>
             </form>
         </div>
     );
+}
+
+async function createSpend(data: {
+    categoryId: string;
+    description: string;
+    amount: number;
+    currency: string;
+    spendDate: string;
+}) {
+    const formData = new FormData();
+    formData.append(
+        "data",
+        new Blob(
+            [JSON.stringify(data)],
+            { type: "application/json" }
+        )
+    );
+
+    return apiFetch(
+        "/api/v1/spends",
+        {
+            method: "POST",
+            body: formData,
+        }
+    );
+}
+
+export default function NewSpendPage() {
+    return <SpendFormPage />;
 }
