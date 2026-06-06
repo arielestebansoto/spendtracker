@@ -39,7 +39,7 @@ type SpendDetail = {
     receiptUrl: string | null;
 };
 
-type SpendFormMode = "create" | "edit";
+type SpendFormMode = "create" | "edit" | "view";
 
 type SpendFormPageProps = {
     mode?: SpendFormMode;
@@ -60,6 +60,8 @@ export function SpendFormPage({
 }: SpendFormPageProps) {
     const router = useRouter();
     const isEditing = mode === "edit";
+    const isViewing = mode === "view";
+    const isReadOnly = isViewing;
 
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -88,7 +90,7 @@ export function SpendFormPage({
 
                 const [categoriesResponse, spendResponse] = await Promise.all([
                     apiFetch("/api/v1/categories"),
-                    isEditing && spendId
+                    (isEditing || isViewing) && spendId
                         ? apiFetch(`/api/v1/spends/${spendId}`)
                         : Promise.resolve(null),
                 ]);
@@ -100,7 +102,7 @@ export function SpendFormPage({
                 const data: Category[] = await categoriesResponse.json();
                 setCategories(data);
 
-                if (isEditing) {
+                if (isEditing || isViewing) {
                     if (!spendId || !spendResponse || !spendResponse.ok) {
                         throw new Error("Failed to load spend");
                     }
@@ -124,7 +126,7 @@ export function SpendFormPage({
         }
 
         load();
-    }, [isEditing, router, spendId]);
+    }, [isEditing, isViewing, router, spendId]);
 
     function updateField(
         field: keyof FormState,
@@ -173,6 +175,10 @@ export function SpendFormPage({
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setSubmitError("");
+
+        if (isReadOnly) {
+            return;
+        }
 
         if (!validateForm()) {
             return;
@@ -250,10 +256,16 @@ export function SpendFormPage({
             <div className="mt-8 mb-6 flex items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold">
-                        {isEditing ? "Edit Expense" : "New Expense"}
+                        {isViewing
+                            ? "Expense Detail"
+                            : isEditing
+                                ? "Edit Expense"
+                                : "New Expense"}
                     </h1>
                     <p className="mt-2 text-sm opacity-75">
-                        {isEditing
+                        {isViewing
+                            ? "You are viewing the expense details."
+                            : isEditing
                             ? "You are editing this expense. Receipt changes are not available yet."
                             : "Enter the expense details. Receipt upload can be added later."}
                     </p>
@@ -292,7 +304,7 @@ export function SpendFormPage({
                         onChange={(event) =>
                             updateField("categoryId", event.target.value)
                         }
-                        disabled={isCategoryDisabled || isSaving}
+                        disabled={isCategoryDisabled || isSaving || isReadOnly}
                         className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
                         aria-invalid={Boolean(errors.categoryId)}
                     >
@@ -336,6 +348,7 @@ export function SpendFormPage({
                                 updateField("amount", event.target.value)
                             }
                             disabled={isSaving}
+                            readOnly={isReadOnly}
                             className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
                             aria-invalid={Boolean(errors.amount)}
                         />
@@ -362,6 +375,7 @@ export function SpendFormPage({
                                 updateField("currency", event.target.value)
                             }
                             disabled={isSaving}
+                            readOnly={isReadOnly}
                             placeholder="USD"
                             className="w-full rounded-lg border bg-transparent px-3 py-2 uppercase disabled:opacity-60"
                             aria-invalid={Boolean(errors.currency)}
@@ -389,6 +403,7 @@ export function SpendFormPage({
                             updateField("spendDate", event.target.value)
                         }
                         disabled={isSaving}
+                        readOnly={isReadOnly}
                         className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
                         aria-invalid={Boolean(errors.spendDate)}
                     />
@@ -413,6 +428,7 @@ export function SpendFormPage({
                             updateField("description", event.target.value)
                         }
                         disabled={isSaving}
+                        readOnly={isReadOnly}
                         rows={4}
                         className="w-full resize-y rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
                     />
@@ -425,19 +441,21 @@ export function SpendFormPage({
                         disabled={isSaving}
                         className="px-4 py-2 rounded-lg border disabled:opacity-60"
                     >
-                        Cancel
+                        {isViewing ? "Back" : "Cancel"}
                     </button>
-                    <button
-                        type="submit"
-                        disabled={isSaving || isCategoryDisabled}
-                        className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition disabled:opacity-60"
-                    >
-                        {isSaving
-                            ? "Saving..."
-                            : isEditing
-                                ? "Update Expense"
-                                : "Create Expense"}
-                    </button>
+                    {!isViewing && (
+                        <button
+                            type="submit"
+                            disabled={isSaving || isCategoryDisabled}
+                            className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition disabled:opacity-60"
+                        >
+                            {isSaving
+                                ? "Saving..."
+                                : isEditing
+                                    ? "Update Expense"
+                                    : "Create Expense"}
+                        </button>
+                    )}
                 </div>
             </form>
         </div>
