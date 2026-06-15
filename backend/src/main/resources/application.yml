@@ -8,8 +8,14 @@ spring:
     show-sql: false
     properties:
       hibernate:
+        ddl-auto: validate
         jdbc:
           time_zone: UTC
+  
+  flyway:
+    enabled: true
+    clean-disabled: true
+    locations: classpath:db/migration
 
 app:
   storage:

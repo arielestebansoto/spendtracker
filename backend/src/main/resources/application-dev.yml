@@ -12,13 +12,6 @@ app:
 spring:
   jpa:
     show-sql: true
-    hibernate:
-      ddl-auto: validate
-
-  flyway:
-    enabled: true
-    clean-disabled: true
-    locations: classpath:db/migration
   
   security:
     oauth2:
