@@ -18,6 +18,15 @@ spring:
     locations: classpath:db/migration
 
 app:
+  csrf:
+    ignore-urls: 
+  oauth2:
+    default-success-url: 
+  logout:
+    logout-url: 
+  cors:
+    allowed-origins: 
+    allowed-methods: 
   storage:
     local:
       path: uploads
