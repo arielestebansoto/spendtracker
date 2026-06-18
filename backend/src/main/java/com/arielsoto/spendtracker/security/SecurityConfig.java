@@ -1,6 +1,5 @@
 package com.arielsoto.spendtracker.security;
 
-import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +36,9 @@ public class SecurityConfig {
 
     @Value("#{'${app.cors.allowed-methods}'.split(',')}")
     private List<String> allowedMethods;
+
+    @Value("#{'${app.cors.allowed-headers}'.split(',')}")
+    private List<String> allowedHeaders;
 
     @Value("${app.oauth2.default-success-url}")
     private String oauth2DefaultSuccessUrl;
@@ -108,13 +110,9 @@ public class SecurityConfig {
 
         config.setAllowedOrigins(allowedOrigins);
         
-        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(Arrays.asList(
-            "Authorization", 
-            "Cache-Control", 
-            "Content-Type",
-            "X-XSRF-TOKEN"
-        ));
+        config.setAllowedMethods(allowedMethods);
+
+        config.setAllowedHeaders(allowedHeaders);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
