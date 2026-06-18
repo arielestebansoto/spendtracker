@@ -38,6 +38,13 @@ public class SecurityConfig {
     @Value("#{'${app.cors.allowed-methods}'.split(',')}")
     private List<String> allowedMethods;
 
+    private static final List<String> ALLOWED_HEADERS = List.of(
+        "Authorization",
+        "Cache-Control",
+        "Content-Type",
+        "X-XSRF-TOKEN"
+    );
+
     @Value("${app.oauth2.default-success-url}")
     private String oauth2DefaultSuccessUrl;
 
@@ -109,12 +116,8 @@ public class SecurityConfig {
         config.setAllowedOrigins(allowedOrigins);
         
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(Arrays.asList(
-            "Authorization", 
-            "Cache-Control", 
-            "Content-Type",
-            "X-XSRF-TOKEN"
-        ));
+
+        config.setAllowedHeaders(ALLOWED_HEADERS);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
