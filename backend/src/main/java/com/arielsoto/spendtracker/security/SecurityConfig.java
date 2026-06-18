@@ -115,7 +115,7 @@ public class SecurityConfig {
 
         config.setAllowedOrigins(allowedOrigins);
         
-        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(allowedMethods);
 
         config.setAllowedHeaders(ALLOWED_HEADERS);
 
