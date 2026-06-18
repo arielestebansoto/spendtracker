@@ -16,21 +16,6 @@ spring:
     enabled: true
     clean-disabled: true
     locations: classpath:db/migration
-  
-  security:
-    oauth2:
-      client:
-        registration:
-          github:
-            client-id: 
-            client-secret: 
-          google:
-            client-id: 
-            client-secret: 
-            scope:
-              - openid
-              - profile
-              - email
 
 app:
   csrf:
