@@ -1,21 +1,6 @@
 spring:
   jpa:
     show-sql: true
-  
-  security:
-    oauth2:
-      client:
-        registration:
-          github:
-            client-id: ${OAUTH2_GITHUB_CLIENT_ID}
-            client-secret: ${OAUTH2_GITHUB_CLIENT_SECRET}
-          google:
-            client-id: ${OAUTH2_GOOGLE_CLIENT_ID}
-            client-secret: ${OAUTH2_GOOGLE_CLIENT_SECRET}
-            scope:
-              - openid
-              - profile
-              - email
 
 logging:
   level:
