@@ -35,7 +35,7 @@ app:
   csrf:
     ignore-urls: /api/v1/auth/login
   oauth2:
-    default-success-url: http://localhost:3000/dashboard
+    default-success-url: ${OAUTH2_SUCCESS_URL}
   logout:
     logout-url: /api/v1/auth/logout
   cors:
