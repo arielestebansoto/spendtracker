@@ -29,9 +29,6 @@ public class SecurityConfig {
 
     private final CustomOidcUserService customOidcUserService;
 
-    @Value("#{'${app.csrf.ignore-urls}'.split(',')}")
-    private List<String> csrfIgnoreUrls;
-
     @Value("#{'${app.cors.allowed-origins}'.split(',')}")
     private List<String> allowedOrigins;
 
@@ -57,9 +54,6 @@ public class SecurityConfig {
                 )
                 .csrfTokenRequestHandler(
                     new CsrfTokenRequestAttributeHandler()
-                )
-                .ignoringRequestMatchers(
-                    csrfIgnoreUrls.toArray(String[]::new)
                 )
             )
 
