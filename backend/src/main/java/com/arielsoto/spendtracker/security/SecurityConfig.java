@@ -17,6 +17,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.arielsoto.spendtracker.loggin.ClientIpResolver;
+
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
@@ -44,10 +46,12 @@ public class SecurityConfig {
     @Value("${app.logout.logout-url}")
     private String logoutUrl;
 
+    private final SecurityAuditLogger auditLogger;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {        
         return http
-            
+
             .sessionManagement(session -> session
                 .sessionFixation(sessionFixation ->
                     sessionFixation.migrateSession()
@@ -74,20 +78,54 @@ public class SecurityConfig {
             )
             
             .exceptionHandling(exception -> exception
-                .authenticationEntryPoint(
-                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)
-                )   
+
+                .authenticationEntryPoint((request, response, ex) -> {
+
+                    auditLogger.unauthorized(
+                        request.getRequestURI(),
+                        ClientIpResolver.resolve(request)
+                    );
+
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                })
+
+                .accessDeniedHandler((request, response, ex) -> {
+
+                    auditLogger.accessDenied(
+                        request.getRequestURI(),
+                        ClientIpResolver.resolve(request)
+                    );
+
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                })
             )
             
             .oauth2Login(oauth -> oauth
+                 .successHandler((request, response, authentication) -> {
+
+                    auditLogger.loginSuccess(
+                        authentication.getName(),
+                        ClientIpResolver.resolve(request)
+                    );
+
+                    response.sendRedirect(oauth2DefaultSuccessUrl);
+                })
+
+                .failureHandler((request, response, exception) -> {
+
+                    auditLogger.loginFailed(
+                        exception.getClass().getSimpleName(),
+                        ClientIpResolver.resolve(request)
+                    );
+
+                    response.setStatus(401);
+                })
+
                 .userInfoEndpoint(userInfo -> userInfo
                     .userService(customOAuth2UserService)
                     .oidcUserService(customOidcUserService)
                 )
-                .defaultSuccessUrl(
-                    oauth2DefaultSuccessUrl,
-                    true
-                )
+                
             )
             
             .logout(logout -> logout
@@ -99,6 +137,11 @@ public class SecurityConfig {
                     "XSRF-TOKEN"
                 )
                 .logoutSuccessHandler((request, response, authentication) -> {
+
+                    if (authentication != null) {
+                        auditLogger.logout(authentication.getName());
+                    }
+
                     response.setStatus(HttpServletResponse.SC_OK);
                 })
             )
