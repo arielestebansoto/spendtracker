@@ -8,6 +8,10 @@ spring:
   jpa:
     show-sql: true
 
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+    
 logging:
   level:
     org.hibernate.SQL: DEBUG
