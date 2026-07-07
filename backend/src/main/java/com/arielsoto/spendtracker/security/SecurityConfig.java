@@ -47,7 +47,13 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {        
         return http
-
+            
+            .sessionManagement(session -> session
+                .sessionFixation(sessionFixation ->
+                    sessionFixation.migrateSession()
+                )
+            )
+            
             .csrf(csrf -> csrf
                 .csrfTokenRepository(
                     CookieCsrfTokenRepository.withHttpOnlyFalse()
