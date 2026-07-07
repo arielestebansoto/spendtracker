@@ -1,4 +1,6 @@
 server:
+  forward-headers-strategy: framework
+
   servlet:
     session:
       cookie:
