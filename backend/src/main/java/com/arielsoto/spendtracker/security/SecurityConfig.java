@@ -70,7 +70,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/", 
-                    "/error"
+                    "/error",
+                    "/actuator/health"
                 ).permitAll()
                 .anyRequest().authenticated()
             )
