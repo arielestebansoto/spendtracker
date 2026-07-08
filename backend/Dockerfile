@@ -18,7 +18,11 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
-COPY --from=builder /app/build/libs/*.jar app.jar
+RUN useradd --system --uid 1001 spring
+
+COPY --from=builder --chown=spring /app/build/libs/*.jar app.jar
+
+USER spring
 
 EXPOSE 8080
 
