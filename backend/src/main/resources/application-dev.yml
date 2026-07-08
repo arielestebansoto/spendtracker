@@ -1,7 +1,17 @@
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+
 spring:
   jpa:
     show-sql: true
 
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+    
 logging:
   level:
     org.hibernate.SQL: DEBUG

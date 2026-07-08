@@ -32,14 +32,11 @@ spring:
               - profile
               - email
 app:
-  csrf:
-    ignore-urls: /api/v1/auth/login
   oauth2:
-    default-success-url: http://localhost:3000/dashboard
+    default-success-url: ${OAUTH2_SUCCESS_URL}
   logout:
     logout-url: /api/v1/auth/logout
   cors:
-    allowed-origins: http://localhost:3000
     allowed-methods: GET,POST,PUT,DELETE,OPTIONS
     allowed-headers: Authorization,Cache-Control,Content-Type,X-XSRF-TOKEN
   storage:
