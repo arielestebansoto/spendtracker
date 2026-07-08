@@ -1,21 +1,47 @@
+# =========================
+# Stage 1: Dependencies
+# =========================
+FROM node:24-slim AS deps
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+RUN pnpm install --frozen-lockfile
+
+# =========================
+# Stage 2: Builder
+# =========================
 FROM node:24-slim AS builder
 
 WORKDIR /app
 
-COPY . .
-
 RUN corepack enable
-RUN pnpm install --frozen-lockfile
+
+COPY --from=deps /app/node_modules ./node_modules
+
+COPY . .
 
 RUN pnpm build
 
-FROM node:24-slim
+# =========================
+# Stage 3: Runtime
+# =========================
+FROM node:24-slim AS runner
 
 WORKDIR /app
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+ENV NODE_ENV=production
+
+RUN useradd --system --uid 1001 nextjs
+
+COPY --from=builder --chown=nextjs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs /app/public ./public
+
+USER nextjs
 
 EXPOSE 3000
 
