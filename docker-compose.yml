@@ -7,11 +7,25 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build: ./backend
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     env_file:
       - .env
     environment:
@@ -37,8 +51,10 @@ services:
     volumes:
       - ./infra/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:

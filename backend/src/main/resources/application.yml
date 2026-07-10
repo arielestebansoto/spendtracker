@@ -1,3 +1,13 @@
+managment:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  
+  endpoint:
+    health:
+      show-details: never
+
 spring:
   datasource:
     url: ${DB_URL}
