@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17
+    mem_limit: 256m
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -16,6 +17,7 @@ services:
 
   backend:
     build: ./backend
+    mem_limit: 512m
     depends_on:
       postgres:
         condition: service_healthy
@@ -29,6 +31,8 @@ services:
     env_file:
       - .env
     environment:
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx256m"
+
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
 
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
@@ -43,9 +47,11 @@ services:
 
   frontend:
     build: ./frontend
+    mem_limit: 128m
 
   nginx:
     image: nginx:1.30
+    mem_limit: 64m
     ports:
       - "80:80"
     volumes:
