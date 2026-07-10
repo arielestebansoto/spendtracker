@@ -1,6 +1,11 @@
 server:
   forward-headers-strategy: framework
 
+  tomcat:
+    threads:
+      max: 50
+      min-spare: 5
+
   servlet:
     session:
       cookie:
