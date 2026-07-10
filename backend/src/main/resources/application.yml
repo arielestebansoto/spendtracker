@@ -1,4 +1,4 @@
-managment:
+management:
   endpoints:
     web:
       exposure:
@@ -8,12 +8,22 @@ managment:
     health:
       show-details: never
 
+server:
+  tomcat:
+    threads:
+      max: 50
+      min-spare: 5
+      
 spring:
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASS}
 
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+  
   jpa:
     show-sql: false
     properties:
