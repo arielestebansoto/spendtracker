@@ -1,4 +1,4 @@
-managment:
+management:
   endpoints:
     web:
       exposure:
