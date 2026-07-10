@@ -8,6 +8,12 @@ managment:
     health:
       show-details: never
 
+server:
+  tomcat:
+    threads:
+      max: 50
+      min-spare: 5
+      
 spring:
   datasource:
     url: ${DB_URL}
