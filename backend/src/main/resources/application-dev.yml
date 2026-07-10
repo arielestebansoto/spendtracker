@@ -1,3 +1,9 @@
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+
 server:
   servlet:
     session:
