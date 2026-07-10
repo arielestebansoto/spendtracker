@@ -50,7 +50,7 @@ services:
     mem_limit: 128m
 
   nginx:
-    image: nginx:1.30
+    image: nginx:1.30-alpine
     mem_limit: 64m
     ports:
       - "80:80"
