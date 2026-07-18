@@ -10,3 +10,8 @@ services:
   frontend:
     ports:
       - "3000:3000"
+
+  nginx:
+    volumes:
+      - ./infra/nginx/dev/server.conf:/etc/nginx/server.conf:ro
+      - ./infra/nginx/dev/certs:/etc/nginx/certs:ro
