@@ -57,8 +57,7 @@ services:
       - "443:443"
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infra/nginx/common:/etc/nginx/common
-      - ./infra/nginx/dev/server.conf:/etc/nginx/server.conf
+      - ./infra/nginx:/etc/nginx/project:ro
 
     depends_on:
       frontend:

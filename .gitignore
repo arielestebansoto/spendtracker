@@ -1,3 +1,5 @@
 .vscode/
 uploads/**
 .env
+
+infra/nginx/dev/certs/
