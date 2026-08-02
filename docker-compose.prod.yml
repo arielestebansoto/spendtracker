@@ -1,0 +1,9 @@
+services:
+
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/common:/etc/nginx/common:ro
+      - ./infra/nginx/prod/server.conf:/etc/nginx/server.conf:ro
+      - /opt/certbot/www:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
