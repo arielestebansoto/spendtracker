@@ -69,7 +69,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
   
   deploy:
-    needs: docker
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
