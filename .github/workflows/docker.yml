@@ -2,8 +2,8 @@ name: Build & Push Docker Images
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_BACKEND: arielsoto/spendtracker-backend
-  IMAGE_FRONTEND: arielsoto/spendtracker-frontend
+  IMAGE_BACKEND: arielestebansoto/spendtracker-backend
+  IMAGE_FRONTEND: arielestebansoto/spendtracker-frontend
 
 on:
   push:
