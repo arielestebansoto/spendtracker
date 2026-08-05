@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  build:
 
     runs-on: ubuntu-latest
 
