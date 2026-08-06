@@ -6,6 +6,8 @@ env:
   IMAGE_FRONTEND: arielestebansoto/spendtracker-frontend
 
 on:
+  workflow_dispatch:
+  
   push:
     branches:
       - main
