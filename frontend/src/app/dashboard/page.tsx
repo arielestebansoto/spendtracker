@@ -7,8 +7,6 @@ import { initializeSession, logout } from "../lib/auth";
 import Navbar from "../components/Navbar";
 import { apiFetch } from "../lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
-
 type User = {
   id: string;
   name: string;

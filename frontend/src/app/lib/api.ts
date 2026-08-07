@@ -1,7 +1,5 @@
 import { getCookie } from "./csrf";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL!;
-
 export async function apiFetch(
     path: string,
     options: RequestInit = {}
@@ -23,7 +21,7 @@ export async function apiFetch(
     }
 
     const response = await fetch(
-        `${API_URL}${path}`,
+        `${path}`,
         {
             ...options,
             credentials: "include",
