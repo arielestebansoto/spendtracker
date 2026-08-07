@@ -2,15 +2,13 @@
 
 import Navbar from "./components/Navbar";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
-
 export default function HomePage() {
   const loginGoogle = () => {
-    window.location.href =`${API_URL}/oauth2/authorization/google`;
+    window.location.href =`/oauth2/authorization/google`;
   };
 
   const loginGithub = () => {
-    window.location.href = `${API_URL}/oauth2/authorization/github`;
+    window.location.href = `/oauth2/authorization/github`;
   };
 
   return (
