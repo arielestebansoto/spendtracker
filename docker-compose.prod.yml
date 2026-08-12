@@ -1,9 +1,17 @@
 services:
+  backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
 
-  nginx:
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infra/nginx/common:/etc/nginx/common:ro
-      - ./infra/nginx/prod/server.conf:/etc/nginx/server.conf:ro
-      - /opt/certbot/www:/var/www/certbot:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - app
+      - web
+
+  frontend:
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
