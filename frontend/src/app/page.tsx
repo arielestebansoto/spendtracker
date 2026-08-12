@@ -1,14 +1,15 @@
 "use client";
 
 import Navbar from "./components/Navbar";
+import { apiUrl } from "./lib/api";
 
 export default function HomePage() {
   const loginGoogle = () => {
-    window.location.href =`/oauth2/authorization/google`;
+    window.location.href = apiUrl("/oauth2/authorization/google");
   };
 
   const loginGithub = () => {
-    window.location.href = `/oauth2/authorization/github`;
+    window.location.href = apiUrl("/oauth2/authorization/github");
   };
 
   return (
