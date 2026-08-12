@@ -1,0 +1,17 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+
+    networks:
+      - app
+      - web
+
+  frontend:
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
