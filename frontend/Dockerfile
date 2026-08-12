@@ -34,6 +34,7 @@ FROM node:24-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
 
 RUN useradd --system --uid 1001 nextjs
 
