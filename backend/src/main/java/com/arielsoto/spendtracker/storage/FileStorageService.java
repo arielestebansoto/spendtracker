@@ -11,4 +11,6 @@ public interface FileStorageService {
     );
 
     Resource load(String key);
+
+    void deleteDirectory(String directory);
 }

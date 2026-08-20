@@ -3,13 +3,17 @@ package com.arielsoto.spendtracker.user;
 import java.time.LocalDateTime;
 
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.http.ResponseEntity;
+
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
+import com.arielsoto.spendtracker.spend.SpendService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +25,7 @@ public class UserController {
     
     private final AuthenticatedUserService authenticatedUserService;
     private final UserAppRepository userRepository;
+    private final SpendService spendService;
 
     @GetMapping("/me")
     public UserMeResponse me(
@@ -73,5 +78,19 @@ public class UserController {
             user.getTermsVersion(),
             user.getAcceptedAt()
         );
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        spendService.deleteAllByUser(user);
+
+        userRepository.delete(user);
+
+        return ResponseEntity.noContent().build();
     }
 }

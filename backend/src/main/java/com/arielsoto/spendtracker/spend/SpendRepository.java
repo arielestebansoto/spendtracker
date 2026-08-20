@@ -37,4 +37,6 @@ public interface SpendRepository extends JpaRepository<Spend, UUID> {
     long countByUserId(UUID userId);
 
     void deleteByIdAndUserId(UUID id, UUID userId);
+
+    List<Spend> findAllByUserId(UUID userId);
 }
