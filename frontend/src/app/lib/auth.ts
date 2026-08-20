@@ -37,3 +37,13 @@ export async function logout() {
 export async function initializeSecurity() {
     await apiFetch("/api/v1/security/csrf");
 }
+
+export async function deleteAccount() {
+    const response = await apiFetch("/api/v1/user/me", {
+        method: "DELETE",
+    });
+
+    if (!response.ok) {
+        throw new Error("Failed to delete account");
+    }
+}

@@ -5,11 +5,13 @@ import Link from "next/link";
 type NavbarProps = {
     userName?: string;
     onLogout?: () => void;
+    onDeleteAccount?: () => void;
 };
 
 export default function Navbar({
     userName,
     onLogout,
+    onDeleteAccount,
 }: NavbarProps) {
     return (
         <header className="border-b">
@@ -26,6 +28,15 @@ export default function Navbar({
                         <span className="text-sm">
                             {userName}
                         </span>
+
+                        {onDeleteAccount && (
+                            <button
+                                onClick={onDeleteAccount}
+                                className="px-4 py-2 rounded-lg border text-red-600 hover:bg-red-50 hover:text-red-700 transition"
+                            >
+                                Delete Account
+                            </button>
+                        )}
 
                         <button
                             onClick={onLogout}
