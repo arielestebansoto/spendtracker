@@ -3,12 +3,9 @@ package com.arielsoto.spendtracker.spend;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.core.io.Resource;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
@@ -17,9 +14,6 @@ import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
-import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
-import com.arielsoto.spendtracker.storage.StoredFile;
-import com.arielsoto.spendtracker.storage.StoredResource;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.transaction.Transactional;
@@ -31,7 +25,6 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
-    private final SpendReceiptStorageService spendReceiptStorageService;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -74,7 +67,6 @@ public class SpendService {
 
     public CreateSpendResponse create(
         CreateSpendRequest request,
-        MultipartFile receipt,
         UserApp user
     ) {
 
@@ -84,15 +76,6 @@ public class SpendService {
                 "Category not found: " + request.categoryId()
             ));
 
-        String receiptKey = null;
-        String contentType = null;
-        
-        if (receipt != null && !receipt.isEmpty()) {
-            StoredFile storedFile = spendReceiptStorageService.store(user, receipt);
-            receiptKey = storedFile.key();
-            contentType = storedFile.contentType();
-        }
-
         Spend spend = Spend.builder()
             .user(user)
             .category(category)
@@ -100,8 +83,6 @@ public class SpendService {
             .amount(request.amount())
             .currency(request.currency())
             .spendDate(request.spendDate())
-            .receiptKey(receiptKey)
-            .receiptContentType(contentType)
             .build();
 
         Spend saved = spendRepository.save(spend);
@@ -114,32 +95,6 @@ public class SpendService {
             saved.getAmount(),
             saved.getCurrency(),
             saved.getSpendDate()
-        );
-    }
-
-    public StoredResource findReceiptResource(
-        UUID id,
-        UUID userId
-    ) {
-        Spend spend = spendRepository
-            .findByIdAndUserId(id, userId)
-            .orElseThrow(() -> new RuntimeException(
-                "Spend not found"
-            ));
-
-        if (spend.getReceiptKey() == null) {
-            throw new RuntimeException(
-                "Spend has no receipt"
-            );
-        }
-
-
-        Resource resource = spendReceiptStorageService
-            .getResource(spend.getReceiptKey());
-
-        return new StoredResource(
-            resource,
-            spend.getReceiptContentType()
         );
     }
 
@@ -196,7 +151,5 @@ public class SpendService {
         );
 
         spendRepository.deleteAll(spends);
-
-        spendReceiptStorageService.deleteAllReceiptsByUser(user);
     }
 }
