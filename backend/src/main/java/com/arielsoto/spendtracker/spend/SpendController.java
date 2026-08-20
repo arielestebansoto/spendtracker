@@ -2,8 +2,6 @@ package com.arielsoto.spendtracker.spend;
 
 import java.util.UUID;
 
-import org.springframework.core.io.Resource;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -19,11 +17,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-
-import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
@@ -31,7 +26,6 @@ import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
-import com.arielsoto.spendtracker.storage.StoredResource;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.validation.Valid;
@@ -75,11 +69,9 @@ public class SpendController {
         );
      }
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public CreateSpendResponse create(
-        @RequestPart("data") @Valid CreateSpendRequest request,
-        @RequestPart(value = "receipt", required = false)
-        MultipartFile receipt,
+        @RequestBody @Valid CreateSpendRequest request,
         OAuth2AuthenticationToken authentication
     ) {
 
@@ -88,34 +80,8 @@ public class SpendController {
 
         return spendService.create(
             request,
-            receipt, 
             user
         );
-    }
-
-    @GetMapping("/{id}/receipt")
-    public ResponseEntity<Resource> receipt(
-        @PathVariable("id") UUID id,
-        OAuth2AuthenticationToken authentication
-    ) {
-
-        UserApp user = authenticatedUserService
-            .getCurrentUser(authentication);
-
-        StoredResource storedResource =
-            spendService.findReceiptResource(
-                id,
-                user.getId()
-            );
-
-
-        return ResponseEntity.ok()
-            .contentType(
-                MediaType.parseMediaType(
-                    storedResource.contentType()
-                )
-            )
-            .body(storedResource.resource());
     }
 
     @PutMapping("/{id}")

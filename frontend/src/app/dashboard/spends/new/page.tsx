@@ -36,7 +36,6 @@ type SpendDetail = {
     amount: number;
     currency: string;
     spendDate: string;
-    receiptUrl: string | null;
 };
 
 type SpendFormMode = "create" | "edit" | "view";
@@ -68,11 +67,6 @@ export function SpendFormPage({
     const [categories, setCategories] = useState<Category[]>([]);
     const [form, setForm] = useState<FormState>(initialFormState);
     const [errors, setErrors] = useState<FormErrors>({});
-    const [receiptFile, setReceiptFile] = useState<File | null>(null);
-    const [receiptPreviewUrl, setReceiptPreviewUrl] = useState("");
-    const [existingReceiptUrl, setExistingReceiptUrl] = useState("");
-    const [existingReceiptObjectUrl, setExistingReceiptObjectUrl] = useState("");
-    const [receiptError, setReceiptError] = useState("");
     const [submitError, setSubmitError] = useState("");
     const [isSaving, setIsSaving] = useState(false);
 
@@ -121,7 +115,6 @@ export function SpendFormPage({
                         currency: spend.currency,
                         spendDate: spend.spendDate,
                     });
-                    setExistingReceiptUrl(spend.receiptUrl ?? "");
                 }
             } catch (error) {
                 console.error(error);
@@ -133,58 +126,6 @@ export function SpendFormPage({
 
         load();
     }, [isEditing, isViewing, router, spendId]);
-
-    useEffect(() => {
-        if (!existingReceiptUrl) {
-            return;
-        }
-
-        let objectUrl = "";
-        let isActive = true;
-
-        async function loadReceipt() {
-            try {
-                setReceiptError("");
-
-                const response = await apiFetch(existingReceiptUrl);
-
-                if (!response.ok) {
-                    throw new Error("Failed to load receipt");
-                }
-
-                const blob = await response.blob();
-                objectUrl = URL.createObjectURL(blob);
-
-                if (isActive) {
-                    setExistingReceiptObjectUrl(objectUrl);
-                }
-            } catch (error) {
-                console.error(error);
-
-                if (isActive) {
-                    setReceiptError("We could not load the receipt image.");
-                }
-            }
-        }
-
-        loadReceipt();
-
-        return () => {
-            isActive = false;
-
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
-        };
-    }, [existingReceiptUrl]);
-
-    useEffect(() => {
-        return () => {
-            if (receiptPreviewUrl) {
-                URL.revokeObjectURL(receiptPreviewUrl);
-            }
-        };
-    }, [receiptPreviewUrl]);
 
     function updateField(
         field: keyof FormState,
@@ -199,44 +140,6 @@ export function SpendFormPage({
             ...current,
             [field]: undefined,
         }));
-    }
-
-    function updateReceipt(file: File | null) {
-        setReceiptError("");
-
-        if (!file) {
-            setReceiptFile(null);
-            setReceiptPreviewUrl((current) => {
-                if (current) {
-                    URL.revokeObjectURL(current);
-                }
-
-                return "";
-            });
-            return;
-        }
-
-        if (!file.type.startsWith("image/")) {
-            setReceiptFile(null);
-            setReceiptPreviewUrl((current) => {
-                if (current) {
-                    URL.revokeObjectURL(current);
-                }
-
-                return "";
-            });
-            setReceiptError("Choose an image file.");
-            return;
-        }
-
-        setReceiptFile(file);
-        setReceiptPreviewUrl((current) => {
-            if (current) {
-                URL.revokeObjectURL(current);
-            }
-
-            return URL.createObjectURL(file);
-        });
     }
 
     function validateForm() {
@@ -302,7 +205,16 @@ export function SpendFormPage({
                         body: JSON.stringify(data),
                     }
                 )
-                : await createSpend(data, receiptFile);
+                : await apiFetch(
+                    "/api/v1/spends",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(data),
+                    }
+                );
 
             if (!response.ok) {
                 throw new Error(
@@ -362,8 +274,8 @@ export function SpendFormPage({
                         {isViewing
                             ? "You are viewing the expense details."
                             : isEditing
-                            ? "You are editing this expense. Receipt changes are not available yet."
-                            : "Enter the expense details. Receipt upload can be added later."}
+                            ? "You are editing this expense."
+                            : "Enter the expense details."}
                     </p>
                 </div>
 
@@ -386,55 +298,6 @@ export function SpendFormPage({
                         {submitError}
                     </div>
                 )}
-
-                <div>
-                    <label
-                        htmlFor="receipt"
-                        className="block text-sm font-medium mb-2"
-                    >
-                        Receipt photo
-                    </label>
-
-                    {!isEditing && !isViewing && (
-                        <>
-                            <input
-                                id="receipt"
-                                type="file"
-                                accept="image/*"
-                                onChange={(event) =>
-                                    updateReceipt(event.target.files?.[0] ?? null)
-                                }
-                                disabled={isSaving}
-                                className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
-                            />
-                            <p className="mt-1 text-sm opacity-75">
-                                Optional. You can upload an image from the browser.
-                            </p>
-                        </>
-                    )}
-
-                    {(isEditing || isViewing) && !existingReceiptUrl && (
-                        <p className="rounded-lg border px-3 py-2 text-sm opacity-75">
-                            No receipt photo was uploaded for this expense.
-                        </p>
-                    )}
-
-                    {(receiptPreviewUrl || existingReceiptObjectUrl) && (
-                        <div className="mt-3 overflow-hidden rounded-lg border">
-                            <img
-                                src={receiptPreviewUrl || existingReceiptObjectUrl}
-                                alt="Receipt photo"
-                                className="max-h-96 w-full object-contain"
-                            />
-                        </div>
-                    )}
-
-                    {receiptError && (
-                        <p className="mt-1 text-sm text-red-500">
-                            {receiptError}
-                        </p>
-                    )}
-                </div>
 
                 <div>
                     <label
@@ -604,35 +467,6 @@ export function SpendFormPage({
                 </div>
             </form>
         </div>
-    );
-}
-
-async function createSpend(data: {
-    categoryId: string;
-    description: string;
-    amount: number;
-    currency: string;
-    spendDate: string;
-}, receiptFile: File | null) {
-    const formData = new FormData();
-    formData.append(
-        "data",
-        new Blob(
-            [JSON.stringify(data)],
-            { type: "application/json" }
-        )
-    );
-
-    if (receiptFile) {
-        formData.append("receipt", receiptFile);
-    }
-
-    return apiFetch(
-        "/api/v1/spends",
-        {
-            method: "POST",
-            body: formData,
-        }
     );
 }
 
