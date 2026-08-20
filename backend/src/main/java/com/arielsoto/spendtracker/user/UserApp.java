@@ -44,4 +44,13 @@ public class UserApp {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "privacy_policy_version", length = 50)
+    private String privacyPolicyVersion;
+
+    @Column(name = "terms_version", length = 50)
+    private String termsVersion;
+
+    @Column(name = "accepted_at")
+    private LocalDateTime acceptedAt;
 }
