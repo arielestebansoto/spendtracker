@@ -8,7 +8,7 @@ const geist = Geist({
 
 export const metadata: Metadata = {
   title: "Spend Tracker AI",
-  description: "Track expenses and gain AI-powered financial insights.",
+  description: "Track expenses and manage your personal finances.",
 };
 
 export default function RootLayout({

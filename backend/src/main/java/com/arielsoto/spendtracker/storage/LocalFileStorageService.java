@@ -5,6 +5,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -63,5 +65,33 @@ public class LocalFileStorageService implements FileStorageService {
         );
 
         return new FileSystemResource(path);
+    }
+
+    @Override
+    public void deleteDirectory(String directory) {
+        Path dirPath = Paths.get(storagePath, directory);
+
+        if (!Files.exists(dirPath)) {
+            return;
+        }
+
+        try (Stream<Path> walk = Files.walk(dirPath)) {
+            walk.sorted(Comparator.reverseOrder())
+                .forEach(path -> {
+                    try {
+                        Files.delete(path);
+                    } catch (IOException e) {
+                        throw new RuntimeException(
+                            "Failed to delete: " + path,
+                            e
+                        );
+                    }
+                });
+        } catch (IOException e) {
+            throw new RuntimeException(
+                "Failed to walk directory for deletion: " + dirPath,
+                e
+            );
+        }
     }
 }

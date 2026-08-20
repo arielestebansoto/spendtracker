@@ -60,4 +60,10 @@ public class SpendReceiptStorageService {
     public Resource getResource(String key) {
         return fileStorageService.load(key);
     }
+
+    public void deleteAllReceiptsByUser(UserApp user) {
+        fileStorageService.deleteDirectory(
+            "spends/" + user.getId()
+        );
+    }
 }

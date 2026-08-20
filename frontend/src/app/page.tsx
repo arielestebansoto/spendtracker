@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Navbar from "./components/Navbar";
 import { apiUrl } from "./lib/api";
 
@@ -60,6 +61,17 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+
+      <footer className="absolute bottom-0 w-full py-6">
+        <div className="flex justify-center gap-6 text-sm text-muted-foreground">
+          <Link href="/privacy" className="hover:underline">
+            Privacy Policy
+          </Link>
+          <Link href="/terms" className="hover:underline">
+            Terms of Service
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.core.io.Resource;
@@ -186,5 +187,16 @@ public class SpendService {
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
         spendRepository.delete(spend);
+    }
+
+    @Transactional
+    public void deleteAllByUser(UserApp user) {
+        List<Spend> spends = spendRepository.findAllByUserId(
+            user.getId()
+        );
+
+        spendRepository.deleteAll(spends);
+
+        spendReceiptStorageService.deleteAllReceiptsByUser(user);
     }
 }

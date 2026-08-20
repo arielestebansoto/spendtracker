@@ -71,7 +71,9 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/", 
                     "/error",
-                    "/actuator/health"
+                    "/actuator/health",
+                    "/privacy",
+                    "/terms"
                 ).permitAll()
                 .anyRequest().authenticated()
             )

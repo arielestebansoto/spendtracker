@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { initializeSession, logout } from "../lib/auth";
+import { initializeSession, logout, deleteAccount } from "../lib/auth";
+import { checkConsentStatus } from "../lib/consent";
 import Navbar from "../components/Navbar";
+import ConsentModal from "../components/ConsentModal";
+import DeleteAccountModal from "../components/DeleteAccountModal";
 import { apiFetch } from "../lib/api";
 
 type User = {
@@ -37,6 +40,7 @@ export default function DashboardPage() {
 
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [hasAcceptedPolicies, setHasAcceptedPolicies] = useState(true);
 
     const [spends, setSpends] = useState<Spend[]>([]);
     const [currentPage, setCurrentPage] = useState(0);
@@ -44,6 +48,8 @@ export default function DashboardPage() {
     const [totalElements, setTotalElements] = useState(0);
     const [pageSize, setPageSize] = useState(20);
     const [deletingSpendId, setDeletingSpendId] = useState("");
+    const [showDeleteAccountModal, setShowDeleteAccountModal] =
+        useState(false);
 
     useEffect(() => {
         async function load() {
@@ -56,6 +62,9 @@ export default function DashboardPage() {
                 }
 
                 setUser(currentUser);
+
+                const consent = await checkConsentStatus();
+                setHasAcceptedPolicies(consent.hasAcceptedPolicies);
             } finally {
                 setIsLoading(false);
             }
@@ -95,6 +104,11 @@ export default function DashboardPage() {
 
     async function handleLogout() {
         await logout();
+        router.replace("/");
+    }
+
+    async function handleDeleteAccount() {
+        await deleteAccount();
         router.replace("/");
     }
 
@@ -154,9 +168,23 @@ export default function DashboardPage() {
 
     return (
         <div className="max-w-6xl mx-auto p-6">
+            {!hasAcceptedPolicies && (
+                <ConsentModal
+                    onConsentGiven={() => setHasAcceptedPolicies(true)}
+                />
+            )}
+
+            {showDeleteAccountModal && (
+                <DeleteAccountModal
+                    onConfirm={handleDeleteAccount}
+                    onCancel={() => setShowDeleteAccountModal(false)}
+                />
+            )}
+
             <Navbar 
                 userName={user.name}
                 onLogout={handleLogout}
+                onDeleteAccount={() => setShowDeleteAccountModal(true)}
             />
 
             <h1 className="text-3xl font-bold">
