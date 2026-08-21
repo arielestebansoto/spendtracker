@@ -127,30 +127,6 @@ export default function NewSpendPage() {
         )}
 
         <div>
-          <label htmlFor="categoryId" className="block text-sm font-medium mb-1.5">
-            Category
-          </label>
-          <select
-            id="categoryId"
-            value={form.categoryId}
-            onChange={(e) => updateField("categoryId", e.target.value)}
-            disabled={isCategoryDisabled || isSaving}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-invalid={Boolean(errors.categoryId)}
-          >
-            <option value="">
-              {isCategoryDisabled ? "No categories available" : "Select a category"}
-            </option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-          {errors.categoryId && <p className="mt-1 text-xs text-destructive">{errors.categoryId}</p>}
-        </div>
-
-        <div>
           <label htmlFor="amount" className="block text-sm font-medium mb-1.5">
             Amount
           </label>
@@ -184,6 +160,30 @@ export default function NewSpendPage() {
             aria-invalid={Boolean(errors.spendDate)}
           />
           {errors.spendDate && <p className="mt-1 text-xs text-destructive">{errors.spendDate}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="categoryId" className="block text-sm font-medium mb-1.5">
+            Category
+          </label>
+          <select
+            id="categoryId"
+            value={form.categoryId}
+            onChange={(e) => updateField("categoryId", e.target.value)}
+            disabled={isCategoryDisabled || isSaving}
+            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-invalid={Boolean(errors.categoryId)}
+          >
+            <option value="">
+              {isCategoryDisabled ? "No categories available" : "Select a category"}
+            </option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+          {errors.categoryId && <p className="mt-1 text-xs text-destructive">{errors.categoryId}</p>}
         </div>
 
         <div>
