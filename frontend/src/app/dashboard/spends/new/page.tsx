@@ -22,7 +22,6 @@ type FormState = {
     categoryId: string;
     description: string;
     amount: string;
-    currency: string;
     spendDate: string;
 };
 
@@ -34,7 +33,6 @@ type SpendDetail = {
     category: string;
     description: string;
     amount: number;
-    currency: string;
     spendDate: string;
 };
 
@@ -49,7 +47,6 @@ const initialFormState: FormState = {
     categoryId: "",
     description: "",
     amount: "",
-    currency: "",
     spendDate: new Date().toISOString().slice(0, 10),
 };
 
@@ -112,7 +109,6 @@ export function SpendFormPage({
                         categoryId: spend.categoryId,
                         description: spend.description ?? "",
                         amount: String(spend.amount),
-                        currency: spend.currency,
                         spendDate: spend.spendDate,
                     });
                 }
@@ -133,7 +129,7 @@ export function SpendFormPage({
     ) {
         setForm((current) => ({
             ...current,
-            [field]: field === "currency" ? value.toUpperCase() : value,
+            [field]: value,
         }));
 
         setErrors((current) => ({
@@ -144,7 +140,6 @@ export function SpendFormPage({
 
     function validateForm() {
         const nextErrors: FormErrors = {};
-        const normalizedCurrency = form.currency.trim().toUpperCase();
         const amount = Number(form.amount);
 
         if (!form.categoryId) {
@@ -155,12 +150,6 @@ export function SpendFormPage({
             nextErrors.amount = "Enter an amount.";
         } else if (!Number.isFinite(amount) || amount <= 0) {
             nextErrors.amount = "Amount must be greater than 0.";
-        }
-
-        if (!normalizedCurrency) {
-            nextErrors.currency = "Enter a currency.";
-        } else if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
-            nextErrors.currency = "Use a 3-letter code, like USD or ARS.";
         }
 
         if (!form.spendDate) {
@@ -190,7 +179,6 @@ export function SpendFormPage({
                 categoryId: form.categoryId,
                 description: form.description.trim(),
                 amount: Number(form.amount),
-                currency: form.currency.trim().toUpperCase(),
                 spendDate: form.spendDate,
             };
 
@@ -337,63 +325,33 @@ export function SpendFormPage({
                     )}
                 </div>
 
-                <div className="grid gap-5 sm:grid-cols-2">
-                    <div>
-                        <label
-                            htmlFor="amount"
-                            className="block text-sm font-medium mb-2"
-                        >
-                            Amount
-                        </label>
-                        <input
-                            id="amount"
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            inputMode="decimal"
-                            value={form.amount}
-                            onChange={(event) =>
-                                updateField("amount", event.target.value)
-                            }
-                            disabled={isSaving}
-                            readOnly={isReadOnly}
-                            className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
-                            aria-invalid={Boolean(errors.amount)}
-                        />
-                        {errors.amount && (
-                            <p className="mt-1 text-sm text-red-500">
-                                {errors.amount}
-                            </p>
-                        )}
-                    </div>
-
-                    <div>
-                        <label
-                            htmlFor="currency"
-                            className="block text-sm font-medium mb-2"
-                        >
-                            Currency
-                        </label>
-                        <input
-                            id="currency"
-                            type="text"
-                            maxLength={3}
-                            value={form.currency}
-                            onChange={(event) =>
-                                updateField("currency", event.target.value)
-                            }
-                            disabled={isSaving}
-                            readOnly={isReadOnly}
-                            placeholder="USD"
-                            className="w-full rounded-lg border bg-transparent px-3 py-2 uppercase disabled:opacity-60"
-                            aria-invalid={Boolean(errors.currency)}
-                        />
-                        {errors.currency && (
-                            <p className="mt-1 text-sm text-red-500">
-                                {errors.currency}
-                            </p>
-                        )}
-                    </div>
+                <div>
+                    <label
+                        htmlFor="amount"
+                        className="block text-sm font-medium mb-2"
+                    >
+                        Amount
+                    </label>
+                    <input
+                        id="amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={form.amount}
+                        onChange={(event) =>
+                            updateField("amount", event.target.value)
+                        }
+                        disabled={isSaving}
+                        readOnly={isReadOnly}
+                        className="w-full rounded-lg border bg-transparent px-3 py-2 disabled:opacity-60"
+                        aria-invalid={Boolean(errors.amount)}
+                    />
+                    {errors.amount && (
+                        <p className="mt-1 text-sm text-red-500">
+                            {errors.amount}
+                        </p>
+                    )}
                 </div>
 
                 <div>

@@ -39,9 +39,6 @@ public class Spend {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
 
-    @Column(nullable = false, length = 10)
-    private String currency;
-
     @Column(name = "receipt_key", columnDefinition = "TEXT")
     private String receiptKey;
 

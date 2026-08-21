@@ -11,7 +11,6 @@ public record CreateSpendResponse(
     String category,
     String description,
     BigDecimal amount,
-    String currency,
     LocalDate spendDate
 ) {
     

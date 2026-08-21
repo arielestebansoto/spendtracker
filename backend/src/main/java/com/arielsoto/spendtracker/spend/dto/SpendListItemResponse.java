@@ -8,7 +8,6 @@ public record SpendListItemResponse(
     UUID id,
     String category,
     BigDecimal amount,
-    String currency,
     LocalDate spendDate,
     String description
 ) {

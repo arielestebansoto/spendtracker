@@ -11,7 +11,6 @@ public record SpendDetailResponse(
     String category,
     String description,
     BigDecimal amount,
-    String currency,
     LocalDate spendDate,
     LocalDateTime createdAt,
     String receiptUrl
