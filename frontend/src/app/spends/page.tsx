@@ -114,7 +114,7 @@ export default function SpendsPage() {
   if (status === "error") return <ErrorState onRetry={() => setStatus("loading")} />;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 pt-8 pb-24 md:pb-8">
       {toast && (
         <Toast
           message={toast.message}
@@ -140,7 +140,7 @@ export default function SpendsPage() {
         </div>
         <Link
           href="/spends/new"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -228,6 +228,16 @@ export default function SpendsPage() {
           )}
         </>
       )}
+
+      <Link
+        href="/spends/new"
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 md:hidden inline-flex items-center gap-2 px-5 py-3 rounded-full bg-primary text-primary-foreground text-sm font-medium shadow-lg hover:opacity-90 transition z-50"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        New spend
+      </Link>
     </div>
   );
 }
