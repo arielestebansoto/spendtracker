@@ -1,52 +1,84 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
+import { useAuth } from "./AuthProvider";
+import { logout } from "@/app/lib/auth";
+import Drawer from "./Drawer";
 
-type NavbarProps = {
-    userName?: string;
-    onLogout?: () => void;
-    onDeleteAccount?: () => void;
-};
+export default function Navbar() {
+  const { user } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-export default function Navbar({
-    userName,
-    onLogout,
-    onDeleteAccount,
-}: NavbarProps) {
-    return (
-        <header className="border-b">
-            <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-                <Link
-                    href="/"
-                    className="text-lg font-semibold"
+  async function handleLogout() {
+    await logout();
+    router.replace("/");
+  }
+
+  const navLinks = [
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/spends", label: "Spends" },
+    { href: "/settings", label: "Settings" },
+  ];
+
+  return (
+    <>
+      <header className="border-b border-border bg-card sticky top-0 z-40">
+        <div className="mx-auto px-4 h-14 flex items-center justify-between max-w-5xl">
+          <Link href="/" className="text-lg font-semibold">
+            Spendtracker
+          </Link>
+
+          {user ? (
+            <>
+              <nav className="hidden md:flex items-center gap-1">
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                      pathname === link.href || pathname.startsWith(link.href + "/")
+                        ? "bg-accent text-accent-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <button
+                  onClick={handleLogout}
+                  className="ml-2 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition"
                 >
-                    Spend Tracker AI
-                </Link>
+                  Log out
+                </button>
+              </nav>
 
-                {userName && onLogout && (
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm">
-                            {userName}
-                        </span>
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="md:hidden p-2 -mr-2 rounded-lg hover:bg-accent transition"
+                aria-label="Open menu"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </>
+          ) : (
+            <div className="h-9" />
+          )}
+        </div>
+      </header>
 
-                        {onDeleteAccount && (
-                            <button
-                                onClick={onDeleteAccount}
-                                className="px-4 py-2 rounded-lg border text-red-600 hover:bg-red-50 hover:text-red-700 transition"
-                            >
-                                Delete Account
-                            </button>
-                        )}
-
-                        <button
-                            onClick={onLogout}
-                            className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition"
-                        >
-                            Logout
-                        </button>
-                    </div>
-                )}
-            </div>
-        </header>
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        links={user ? navLinks : []}
+        currentPath={pathname}
+        onLogout={user ? handleLogout : undefined}
+      />
+    </>
   );
 }
