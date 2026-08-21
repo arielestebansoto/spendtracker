@@ -97,7 +97,7 @@ export default function NewSpendPage() {
       if (!response.ok) throw new Error("Failed to create spend");
 
       setToast({ message: "Spend created!", variant: "success" });
-      setTimeout(() => router.push("/dashboard"), 500);
+      setForm(initialFormState);
     } catch {
       setSubmitError("Could not create spend. Please review the data and try again.");
     } finally {
