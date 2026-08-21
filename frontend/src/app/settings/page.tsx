@@ -14,12 +14,21 @@ export default function SettingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   async function handleLogout() {
-    await logout();
+    try {
+      await logout();
+    } catch {
+      // session may already be invalid — proceed anyway
+    }
     router.replace("/");
   }
 
   async function handleDeleteAccount() {
     await deleteAccount();
+    try {
+      await logout();
+    } catch {
+      // session may already be invalid — proceed anyway
+    }
     router.replace("/");
   }
 

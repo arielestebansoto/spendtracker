@@ -15,7 +15,11 @@ import org.springframework.http.ResponseEntity;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.SpendService;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+
+import org.springframework.security.core.context.SecurityContextHolder;
+
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -82,7 +86,8 @@ public class UserController {
 
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteAccount(
-        OAuth2AuthenticationToken authentication
+        OAuth2AuthenticationToken authentication,
+        HttpServletRequest request
     ) {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
@@ -90,6 +95,12 @@ public class UserController {
         spendService.deleteAllByUser(user);
 
         userRepository.delete(user);
+
+        var session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
 
         return ResponseEntity.noContent().build();
     }

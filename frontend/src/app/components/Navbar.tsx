@@ -14,7 +14,11 @@ export default function Navbar() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   async function handleLogout() {
-    await logout();
+    try {
+      await logout();
+    } catch {
+      // session may already be invalid — proceed anyway
+    }
     router.replace("/");
   }
 

@@ -13,7 +13,7 @@ export interface ConsentStatus {
 export async function checkConsentStatus(): Promise<ConsentStatus> {
   const response = await apiFetch("/api/v1/user/consent");
 
-  if (response.status === 401) {
+  if (!response.ok) {
     return {
       hasAcceptedPolicies: false,
       privacyPolicyVersion: null,

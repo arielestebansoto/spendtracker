@@ -13,7 +13,7 @@ export async function getCurrentUser() {
         "/api/v1/user/me"
     );
 
-    if (response.status === 401) {
+    if (!response.ok) {
         return null;
     }
 
