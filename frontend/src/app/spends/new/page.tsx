@@ -64,7 +64,6 @@ export default function NewSpendPage() {
     const nextErrors: FormErrors = {};
     const amount = Number(form.amount);
 
-    if (!form.categoryId) nextErrors.categoryId = "Choose a category.";
     if (!form.amount.trim()) {
       nextErrors.amount = "Enter an amount.";
     } else if (!Number.isFinite(amount) || amount <= 0) {
@@ -128,7 +127,7 @@ export default function NewSpendPage() {
 
         <div>
           <label htmlFor="amount" className="block text-sm font-medium mb-1.5">
-            Amount
+            Amount <span className="text-destructive">*</span>
           </label>
           <input
             id="amount"
@@ -148,7 +147,7 @@ export default function NewSpendPage() {
 
         <div>
           <label htmlFor="spendDate" className="block text-sm font-medium mb-1.5">
-            Date
+            Date <span className="text-destructive">*</span>
           </label>
           <input
             id="spendDate"
@@ -164,7 +163,7 @@ export default function NewSpendPage() {
 
         <div>
           <label htmlFor="categoryId" className="block text-sm font-medium mb-1.5">
-            Category
+            Category <span className="text-muted-foreground">(optional)</span>
           </label>
           <select
             id="categoryId"
@@ -188,7 +187,7 @@ export default function NewSpendPage() {
 
         <div>
           <label htmlFor="description" className="block text-sm font-medium mb-1.5">
-            Description
+            Description <span className="text-muted-foreground">(optional)</span>
           </label>
           <textarea
             id="description"
@@ -212,7 +211,7 @@ export default function NewSpendPage() {
           </button>
           <button
             type="submit"
-            disabled={isSaving || isCategoryDisabled}
+            disabled={isSaving}
             className="px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60"
           >
             {isSaving ? "Saving..." : "Create spend"}
