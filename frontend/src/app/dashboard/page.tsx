@@ -1,331 +1,140 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/app/components/AuthProvider";
+import { fetchDashboardSummary, DashboardSummary } from "@/app/lib/mock";
+import LoadingState from "@/app/components/LoadingState";
+import EmptyState from "@/app/components/EmptyState";
+import ErrorState from "@/app/components/ErrorState";
 
-import { initializeSession, logout, deleteAccount } from "../lib/auth";
-import { checkConsentStatus } from "../lib/consent";
-import Navbar from "../components/Navbar";
-import ConsentModal from "../components/ConsentModal";
-import DeleteAccountModal from "../components/DeleteAccountModal";
-import { apiFetch } from "../lib/api";
+function formatCurrency(amount: number) {
+  return `$${amount.toLocaleString()}`;
+}
 
-type User = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-type Spend = {
-  id: string;
-  category: string;
-  amount: number;
-  spendDate: string;
-  description: string;
-};
-
-type PageResponse<T> = {
-  content: T[];
-  totalPages: number;
-  totalElements: number;
-  number: number;
-  size: number;
-  first: boolean;
-  last: boolean;
-};
+function formatDate(dateStr: string) {
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
 
 export default function DashboardPage() {
-    const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
 
-    const [user, setUser] = useState<User | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [hasAcceptedPolicies, setHasAcceptedPolicies] = useState(true);
+  useEffect(() => {
+    if (!user) return;
 
-    const [spends, setSpends] = useState<Spend[]>([]);
-    const [currentPage, setCurrentPage] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
-    const [totalElements, setTotalElements] = useState(0);
-    const [pageSize, setPageSize] = useState(20);
-    const [deletingSpendId, setDeletingSpendId] = useState("");
-    const [showDeleteAccountModal, setShowDeleteAccountModal] =
-        useState(false);
+    let cancelled = false;
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const currentUser = await initializeSession();
-
-                if (!currentUser) {
-                    router.replace("/");
-                    return;
-                }
-
-                setUser(currentUser);
-
-                const consent = await checkConsentStatus();
-                setHasAcceptedPolicies(consent.hasAcceptedPolicies);
-            } finally {
-                setIsLoading(false);
-            }
+    fetchDashboardSummary()
+      .then((data) => {
+        if (!cancelled) {
+          setSummary(data);
+          setStatus("ready");
         }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
 
-        load();
-    }, [router]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
-    useEffect(() => {
-        if (!user) {
-            return;
-        }
+  if (authLoading || !user) return <LoadingState />;
+  if (status === "error") return <ErrorState onRetry={() => setStatus("loading")} />;
+  if (status === "loading" || !summary) return <LoadingState />;
 
-        async function loadSpends() {
-            try {
-                const response = await apiFetch(
-                    `/api/v1/spends?page=${currentPage}`,
-                );
+  const hasSpends = summary.recentSpends.length > 0;
 
-                if (!response.ok) {
-                    throw new Error("Failed to load spends");
-                }
-
-                const data: PageResponse<Spend> = await response.json();
-
-                setSpends(data.content);
-                setTotalPages(data.totalPages);
-                setTotalElements(data.totalElements);
-                setPageSize(data.size);
-            } catch (error) {
-                console.error(error);
-            }
-        }
-
-        loadSpends();
-    }, [user, currentPage]);
-
-    async function handleLogout() {
-        await logout();
-        router.replace("/");
-    }
-
-    async function handleDeleteAccount() {
-        await deleteAccount();
-        router.replace("/");
-    }
-
-    async function handleDeleteSpend(spendId: string) {
-        const confirmed = window.confirm(
-            "Are you sure you want to delete this expense?"
-        );
-
-        if (!confirmed) {
-            return;
-        }
-
-        setDeletingSpendId(spendId);
-
-        try {
-            const response = await apiFetch(
-                `/api/v1/spends/${spendId}`,
-                {
-                    method: "DELETE",
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error("Failed to delete spend");
-            }
-
-            const nextTotalElements = Math.max(totalElements - 1, 0);
-
-            setSpends((current) =>
-                current.filter((spend) => spend.id !== spendId)
-            );
-            setTotalElements(nextTotalElements);
-            setTotalPages(Math.ceil(nextTotalElements / pageSize));
-
-            if (spends.length === 1 && currentPage > 0) {
-                setCurrentPage((page) => page - 1);
-            }
-        } catch (error) {
-            console.error(error);
-            window.alert("We could not delete the expense. Please try again.");
-        } finally {
-            setDeletingSpendId("");
-        }
-    }
-
-    if (isLoading) {
-        return (
-            <div className="p-6">
-                Checking authentication...
-            </div>
-        );
-    }
-
-    if (!user) {
-        return null;
-    }
-
-    return (
-        <div className="max-w-6xl mx-auto p-6">
-            {!hasAcceptedPolicies && (
-                <ConsentModal
-                    onConsentGiven={() => setHasAcceptedPolicies(true)}
-                />
-            )}
-
-            {showDeleteAccountModal && (
-                <DeleteAccountModal
-                    onConfirm={handleDeleteAccount}
-                    onCancel={() => setShowDeleteAccountModal(false)}
-                />
-            )}
-
-            <Navbar 
-                userName={user.name}
-                onLogout={handleLogout}
-                onDeleteAccount={() => setShowDeleteAccountModal(true)}
-            />
-
-            <h1 className="text-3xl font-bold">
-                Dashboard
-            </h1>
-
-            <div className="flex justify-between items-center mb-6">
-                <p>
-                    Showing {spends.length} of {totalElements} expenses
-                </p>
-
-                <button
-                    onClick={() =>
-                        router.push("/dashboard/spends/new")
-                    }
-                    className="px-4 py-2 rounded-lg border hover:bg-gray-100 hover:text-black transition"
-                >
-                    New Expense
-                </button>
-            </div>
-
-            <div className="overflow-x-auto border rounded-lg">
-                <table className="w-full">
-                    <thead>
-                        <tr className="border-b">
-                            <th className="text-left p-4">Date</th>
-                            <th className="text-left p-4">Category</th>
-                            <th className="text-left p-4">Amount</th>
-                            <th className="text-left p-4">
-                                Description
-                            </th>
-                            <th className="text-left p-4">
-                                Actions
-                            </th>
-                        </tr>
-                    </thead>
-
-                    <tbody>
-                        {spends.map((spend) => (
-                            <tr
-                                key={spend.id}
-                                className="border-b"
-                            >
-                                <td className="p-4">
-                                    {spend.spendDate}
-                                </td>
-
-                                <td className="p-4">
-                                    {spend.category}
-                                </td>
-
-                                <td className="p-4">
-                                    ${spend.amount}
-                                </td>
-
-                                <td className="p-4">
-                                    {spend.description}
-                                </td>
-
-                                <td className="p-4">
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() =>
-                                                router.push(
-                                                `/dashboard/spends/${spend.id}`
-                                                )
-                                            }
-                                            className="px-3 py-1 border rounded"
-                                        >
-                                            View
-                                        </button>
-
-                                        <button
-                                            onClick={() =>
-                                                router.push(
-                                                `/dashboard/spends/${spend.id}/edit`
-                                                )
-                                            }
-                                            className="px-3 py-1 border rounded"
-                                        >
-                                            Edit
-                                        </button>
-
-                                        <button
-                                            onClick={() =>
-                                                handleDeleteSpend(spend.id)
-                                            }
-                                            disabled={deletingSpendId === spend.id}
-                                            className="px-3 py-1 border rounded disabled:opacity-50"
-                                        >
-                                            {deletingSpendId === spend.id
-                                                ? "Deleting..."
-                                                : "Delete"}
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
-
-                        {spends.length === 0 && (
-                            <tr>
-                                <td
-                                    colSpan={5}
-                                    className="p-8 text-center"
-                                >
-                                    No expenses found
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="flex justify-center items-center gap-4 mt-6">
-                <button
-                    disabled={currentPage === 0}
-                    onClick={() =>
-                        setCurrentPage((p) => p - 1)
-                    }
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                >
-                    Previous
-                </button>
-
-                <span>
-                    Page {currentPage + 1} of{" "}
-                    {Math.max(totalPages, 1)}
-                </span>
-
-                <button
-                    disabled={
-                        totalPages === 0 ||
-                        currentPage >= totalPages - 1
-                    }
-                    onClick={() =>
-                        setCurrentPage((p) => p + 1)
-                    }
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                >
-                    Next
-                </button>
-            </div>
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Here&apos;s your spending overview.
+          </p>
         </div>
-    );
+        <Link
+          href="/spends/new"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          New spend
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="rounded-xl border border-border p-4">
+          <p className="text-sm text-muted-foreground">Total spent</p>
+          <p className="text-2xl font-bold mt-1">{formatCurrency(summary.totalSpent)}</p>
+        </div>
+        <div className="rounded-xl border border-border p-4">
+          <p className="text-sm text-muted-foreground">Spends</p>
+          <p className="text-2xl font-bold mt-1">{summary.spendCount}</p>
+        </div>
+        <div className="rounded-xl border border-border p-4">
+          <p className="text-sm text-muted-foreground">Average</p>
+          <p className="text-2xl font-bold mt-1">{formatCurrency(summary.averageSpend)}</p>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold mb-4">Recent spends</h2>
+
+        {!hasSpends ? (
+          <EmptyState
+            title="No spends yet"
+            description="Start tracking your expenses."
+            action={
+              <Link
+                href="/spends/new"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+              >
+                Create your first spend
+              </Link>
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {summary.recentSpends.map((spend) => (
+              <div
+                key={spend.id}
+                className="flex items-center justify-between px-4 py-3 rounded-lg border border-border hover:bg-accent transition"
+              >
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{spend.category}</p>
+                    {spend.description && (
+                      <p className="text-xs text-muted-foreground truncate">{spend.description}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-muted-foreground">{formatDate(spend.spendDate)}</span>
+                  <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {hasSpends && (
+          <div className="mt-4 text-center">
+            <Link
+              href="/spends"
+              className="text-sm text-muted-foreground hover:text-foreground transition"
+            >
+              View all spends →
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
