@@ -69,16 +69,16 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="rounded-xl border border-border p-4">
+      <div className="flex sm:grid sm:grid-cols-3 gap-3 sm:gap-4 overflow-x-auto sm:overflow-visible snap-x snap-mandatory mb-8 scrollbar-none">
+        <div className="rounded-xl border border-border p-4 min-w-[65%] sm:min-w-0 snap-start">
           <p className="text-sm text-muted-foreground">Total spent</p>
           <p className="text-2xl font-bold mt-1">{formatCurrency(summary.totalSpent)}</p>
         </div>
-        <div className="rounded-xl border border-border p-4">
+        <div className="rounded-xl border border-border p-4 min-w-[65%] sm:min-w-0 snap-start">
           <p className="text-sm text-muted-foreground">Spends</p>
           <p className="text-2xl font-bold mt-1">{summary.spendCount}</p>
         </div>
-        <div className="rounded-xl border border-border p-4">
+        <div className="rounded-xl border border-border p-4 min-w-[65%] sm:min-w-0 snap-start">
           <p className="text-sm text-muted-foreground">Average</p>
           <p className="text-2xl font-bold mt-1">{formatCurrency(summary.averageSpend)}</p>
         </div>
