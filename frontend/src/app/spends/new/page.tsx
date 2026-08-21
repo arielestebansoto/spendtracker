@@ -96,7 +96,19 @@ export default function NewSpendPage() {
 
       if (!response.ok) throw new Error("Failed to create spend");
 
-      setToast({ message: "Spend created!", variant: "success" });
+      const created = await response.json();
+      const parts = [
+        `Spent $${created.amount}`,
+        created.category,
+        new Date(created.spendDate + "T00:00:00").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setToast({ message: parts, variant: "success" });
       setForm(initialFormState);
     } catch {
       setSubmitError("Could not create spend. Please review the data and try again.");
