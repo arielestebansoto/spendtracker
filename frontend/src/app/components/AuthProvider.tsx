@@ -41,6 +41,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
 
         if (!currentUser) {
+          setUser(null);
+          setNeedsConsent(false);
           if (!PUBLIC_ROUTES.includes(pathname)) {
             router.replace("/");
           }
