@@ -40,7 +40,6 @@ public class SpendService {
             spend.getCategory().getName(),
             spend.getDescription(),
             spend.getAmount(),
-            spend.getCurrency(),
             spend.getSpendDate(),
             spend.getCreatedAt(),
             spend.receiptUrl()
@@ -58,7 +57,6 @@ public class SpendService {
                     s.getId(),
                     s.getCategory().getName(),
                     s.getAmount(),
-                    s.getCurrency(),
                     s.getSpendDate(),
                     s.getDescription()
                 );
@@ -81,7 +79,6 @@ public class SpendService {
             .category(category)
             .description(request.description())
             .amount(request.amount())
-            .currency(request.currency())
             .spendDate(request.spendDate())
             .build();
 
@@ -93,7 +90,6 @@ public class SpendService {
             saved.getCategory().getName(),
             saved.getDescription(),
             saved.getAmount(),
-            saved.getCurrency(),
             saved.getSpendDate()
         );
     }
@@ -116,7 +112,6 @@ public class SpendService {
         spend.setCategory(category);
         spend.setDescription(request.description());
         spend.setAmount(request.amount());
-        spend.setCurrency(request.currency());
         spend.setSpendDate(request.spendDate());
 
         return new SpendDetailResponse(
@@ -125,7 +120,6 @@ public class SpendService {
             spend.getCategory().getName(),
             spend.getDescription(),
             spend.getAmount(),
-            spend.getCurrency(),
             spend.getSpendDate(),
             spend.getCreatedAt(),
             spend.receiptUrl()

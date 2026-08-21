@@ -20,7 +20,6 @@ type Spend = {
   id: string;
   category: string;
   amount: number;
-  currency: string;
   spendDate: string;
   description: string;
 };
@@ -237,7 +236,7 @@ export default function DashboardPage() {
                                 </td>
 
                                 <td className="p-4">
-                                    {spend.currency} {spend.amount}
+                                    ${spend.amount}
                                 </td>
 
                                 <td className="p-4">
