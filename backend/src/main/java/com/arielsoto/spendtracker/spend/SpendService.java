@@ -68,11 +68,7 @@ public class SpendService {
         UserApp user
     ) {
 
-        Category category = categoryRepository
-            .findById(request.categoryId())
-            .orElseThrow(() -> new RuntimeException(
-                "Category not found: " + request.categoryId()
-            ));
+        Category category = resolveCategory(request.categoryId());
 
         Spend spend = Spend.builder()
             .user(user)
@@ -105,9 +101,7 @@ public class SpendService {
             .findByIdAndUserId(id, userId)
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
-        Category category = categoryRepository
-            .findById(request.categoryId())
-            .orElseThrow(() -> new RuntimeException("Category not found"));
+        Category category = resolveCategory(request.categoryId());
 
         spend.setCategory(category);
         spend.setDescription(request.description());
@@ -145,5 +139,18 @@ public class SpendService {
         );
 
         spendRepository.deleteAll(spends);
+    }
+
+    private Category resolveCategory(UUID categoryId) {
+        if (categoryId == null) {
+            return categoryRepository.findByName("Uncategorized")
+                .orElseThrow(() -> new RuntimeException(
+                    "Default 'Uncategorized' category not found"
+                ));
+        }
+        return categoryRepository.findById(categoryId)
+            .orElseThrow(() -> new RuntimeException(
+                "Category not found: " + categoryId
+            ));
     }
 }

@@ -9,7 +9,6 @@ import java.util.UUID;
 
 public record UpdateSpendRequest(
 
-    @NotNull
     UUID categoryId,
 
     String description,
