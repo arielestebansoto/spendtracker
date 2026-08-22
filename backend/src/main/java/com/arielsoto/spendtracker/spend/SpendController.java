@@ -1,5 +1,8 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -16,12 +19,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
+import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
@@ -37,7 +42,25 @@ public class SpendController {
     
     private final SpendService spendService;
     private final AuthenticatedUserService authenticatedUserService;
-    
+
+    @GetMapping("/summary")
+    public DashboardSummaryResponse getSummary(
+        @RequestParam(name = "recentLimit", defaultValue = "5") int recentLimit,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        YearMonth now = YearMonth.now();
+
+        return spendService.getDashboardSummary(
+            user.getId(),
+            now.atDay(1),
+            now.atEndOfMonth(),
+            recentLimit
+        );
+    }
+
     @GetMapping("/{id}")
     public SpendDetailResponse findById(
         @PathVariable("id") UUID id,
@@ -57,13 +80,20 @@ public class SpendController {
             direction = Sort.Direction.DESC
         )
         Pageable pageable,
+        @RequestParam(name = "categoryId", required = false) UUID categoryId,
+        @RequestParam(name = "description", required = false) String description,
+        @RequestParam(name = "minAmount", required = false) BigDecimal minAmount,
+        @RequestParam(name = "maxAmount", required = false) BigDecimal maxAmount,
+        @RequestParam(name = "startDate", required = false) LocalDate startDate,
+        @RequestParam(name = "endDate", required = false) LocalDate endDate,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
 
-        return spendService.findAllByUserId(
-            user.getId(),
+        return spendService.findByFilters(
+            user.getId(), categoryId, description,
+            minAmount, maxAmount, startDate, endDate,
             pageable
         );
      }

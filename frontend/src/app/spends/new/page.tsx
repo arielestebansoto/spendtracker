@@ -64,7 +64,6 @@ export default function NewSpendPage() {
     const nextErrors: FormErrors = {};
     const amount = Number(form.amount);
 
-    if (!form.categoryId) nextErrors.categoryId = "Choose a category.";
     if (!form.amount.trim()) {
       nextErrors.amount = "Enter an amount.";
     } else if (!Number.isFinite(amount) || amount <= 0) {
@@ -97,8 +96,20 @@ export default function NewSpendPage() {
 
       if (!response.ok) throw new Error("Failed to create spend");
 
-      setToast({ message: "Spend created!", variant: "success" });
-      setTimeout(() => router.push("/dashboard"), 500);
+      const created = await response.json();
+      const parts = [
+        `Spent $${created.amount}`,
+        created.category,
+        new Date(created.spendDate + "T00:00:00").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setToast({ message: parts, variant: "success" });
+      setForm(initialFormState);
     } catch {
       setSubmitError("Could not create spend. Please review the data and try again.");
     } finally {
@@ -127,8 +138,44 @@ export default function NewSpendPage() {
         )}
 
         <div>
+          <label htmlFor="amount" className="block text-sm font-medium mb-1.5">
+            Amount <span className="text-destructive">*</span>
+          </label>
+          <input
+            id="amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={form.amount}
+            onChange={(e) => updateField("amount", e.target.value)}
+            disabled={isSaving}
+            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-invalid={Boolean(errors.amount)}
+          />
+          {errors.amount && <p className="mt-1 text-xs text-destructive">{errors.amount}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="spendDate" className="block text-sm font-medium mb-1.5">
+            Date <span className="text-destructive">*</span>
+          </label>
+          <input
+            id="spendDate"
+            type="date"
+            value={form.spendDate}
+            onChange={(e) => updateField("spendDate", e.target.value)}
+            disabled={isSaving}
+            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-invalid={Boolean(errors.spendDate)}
+          />
+          {errors.spendDate && <p className="mt-1 text-xs text-destructive">{errors.spendDate}</p>}
+        </div>
+
+        <div>
           <label htmlFor="categoryId" className="block text-sm font-medium mb-1.5">
-            Category
+            Category <span className="text-muted-foreground">(optional)</span>
           </label>
           <select
             id="categoryId"
@@ -151,44 +198,8 @@ export default function NewSpendPage() {
         </div>
 
         <div>
-          <label htmlFor="amount" className="block text-sm font-medium mb-1.5">
-            Amount
-          </label>
-          <input
-            id="amount"
-            type="number"
-            min="0.01"
-            step="0.01"
-            inputMode="decimal"
-            placeholder="0.00"
-            value={form.amount}
-            onChange={(e) => updateField("amount", e.target.value)}
-            disabled={isSaving}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-invalid={Boolean(errors.amount)}
-          />
-          {errors.amount && <p className="mt-1 text-xs text-destructive">{errors.amount}</p>}
-        </div>
-
-        <div>
-          <label htmlFor="spendDate" className="block text-sm font-medium mb-1.5">
-            Date
-          </label>
-          <input
-            id="spendDate"
-            type="date"
-            value={form.spendDate}
-            onChange={(e) => updateField("spendDate", e.target.value)}
-            disabled={isSaving}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-invalid={Boolean(errors.spendDate)}
-          />
-          {errors.spendDate && <p className="mt-1 text-xs text-destructive">{errors.spendDate}</p>}
-        </div>
-
-        <div>
           <label htmlFor="description" className="block text-sm font-medium mb-1.5">
-            Description
+            Description <span className="text-muted-foreground">(optional)</span>
           </label>
           <textarea
             id="description"
@@ -212,7 +223,7 @@ export default function NewSpendPage() {
           </button>
           <button
             type="submit"
-            disabled={isSaving || isCategoryDisabled}
+            disabled={isSaving}
             className="px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition disabled:opacity-60"
           >
             {isSaving ? "Saving..." : "Create spend"}

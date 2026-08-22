@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
@@ -19,12 +19,35 @@ type Spend = {
   description: string;
 };
 
+type Category = {
+  id: string;
+  name: string;
+};
+
 type PageResponse<T> = {
   content: T[];
   totalPages: number;
   totalElements: number;
   number: number;
   size: number;
+};
+
+type FilterValues = {
+  categoryId: string;
+  description: string;
+  minAmount: string;
+  maxAmount: string;
+  startDate: string;
+  endDate: string;
+};
+
+const emptyFilters: FilterValues = {
+  categoryId: "",
+  description: "",
+  minAmount: "",
+  maxAmount: "",
+  startDate: "",
+  endDate: "",
 };
 
 function formatCurrency(amount: number) {
@@ -56,12 +79,37 @@ export default function SpendsPage() {
 
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const [draft, setDraft] = useState<FilterValues>(emptyFilters);
+  const [applied, setApplied] = useState<FilterValues>(emptyFilters);
+
+  const hasActiveFilters =
+    applied.categoryId || applied.description || applied.minAmount || applied.maxAmount || applied.startDate || applied.endDate;
+
+  useEffect(() => {
+    if (!user) return;
+    apiFetch("/api/v1/categories")
+      .then((res) => res.json())
+      .then((data: Category[]) => setCategories(data))
+      .catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 
     let cancelled = false;
 
-    apiFetch(`/api/v1/spends?page=${currentPage}`)
+    const params = new URLSearchParams({ page: String(currentPage) });
+    if (applied.categoryId) params.set("categoryId", applied.categoryId);
+    if (applied.description) params.set("description", applied.description);
+    if (applied.minAmount) params.set("minAmount", applied.minAmount);
+    if (applied.maxAmount) params.set("maxAmount", applied.maxAmount);
+    if (applied.startDate) params.set("startDate", applied.startDate);
+    if (applied.endDate) params.set("endDate", applied.endDate);
+
+    apiFetch(`/api/v1/spends?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load spends");
         return res.json();
@@ -81,7 +129,46 @@ export default function SpendsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, currentPage]);
+  }, [user, currentPage, applied]);
+
+  const prevFiltersRef = useRef(applied);
+
+  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    const changed =
+      prev.categoryId !== applied.categoryId ||
+      prev.description !== applied.description ||
+      prev.minAmount !== applied.minAmount ||
+      prev.maxAmount !== applied.maxAmount ||
+      prev.startDate !== applied.startDate ||
+      prev.endDate !== applied.endDate;
+
+    if (changed && currentPage !== 0) {
+      setCurrentPage(0);
+    }
+
+    prevFiltersRef.current = applied;
+  }, [applied, currentPage]);
+
+  function applyFilters() {
+    setApplied(draft);
+    setFiltersOpen(false);
+  }
+
+  function resetFilters() {
+    setDraft(emptyFilters);
+    setApplied(emptyFilters);
+  }
+
+  function openFilters() {
+    setDraft(applied);
+    setFiltersOpen(true);
+  }
+
+  function closeFilters() {
+    setDraft(applied);
+    setFiltersOpen(false);
+  }
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -114,7 +201,7 @@ export default function SpendsPage() {
   if (status === "error") return <ErrorState onRetry={() => setStatus("loading")} />;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 pt-8 pb-24 md:pb-8">
       {toast && (
         <Toast
           message={toast.message}
@@ -140,7 +227,7 @@ export default function SpendsPage() {
         </div>
         <Link
           href="/spends/new"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -149,19 +236,144 @@ export default function SpendsPage() {
         </Link>
       </div>
 
+      <div className="mb-6">
+        <button
+          onClick={filtersOpen ? closeFilters : openFilters}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+            hasActiveFilters
+              ? "bg-primary text-primary-foreground"
+              : "border border-border hover:bg-accent"
+          }`}
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+          </svg>
+          Filters
+          {hasActiveFilters && (
+            <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-xs">
+              Active
+            </span>
+          )}
+        </button>
+
+        <div className={`grid transition-all duration-200 ease-in-out ${filtersOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+          <div className="overflow-hidden">
+            <div className="mt-3 p-4 rounded-lg border border-border bg-card shadow-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+                  <select
+                    value={draft.categoryId}
+                    onChange={(e) => setDraft((f) => ({ ...f, categoryId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  >
+                    <option value="">All categories</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Description</label>
+                  <input
+                    type="text"
+                    value={draft.description}
+                    onChange={(e) => setDraft((f) => ({ ...f, description: e.target.value }))}
+                    placeholder="Search description..."
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Min amount</label>
+                    <input
+                      type="number"
+                      value={draft.minAmount}
+                      onChange={(e) => setDraft((f) => ({ ...f, minAmount: e.target.value }))}
+                      placeholder="0"
+                      min="0"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Max amount</label>
+                    <input
+                      type="number"
+                      value={draft.maxAmount}
+                      onChange={(e) => setDraft((f) => ({ ...f, maxAmount: e.target.value }))}
+                      placeholder="No limit"
+                      min="0"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Start date</label>
+                  <input
+                    type="date"
+                    value={draft.startDate}
+                    onChange={(e) => setDraft((f) => ({ ...f, startDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">End date</label>
+                  <input
+                    type="date"
+                    value={draft.endDate}
+                    onChange={(e) => setDraft((f) => ({ ...f, endDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                {hasActiveFilters && (
+                  <button
+                    onClick={resetFilters}
+                    className="px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition"
+                  >
+                    Reset filters
+                  </button>
+                )}
+                <button
+                  onClick={applyFilters}
+                  className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+                >
+                  Apply filters
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {status === "loading" ? (
         <LoadingState />
       ) : spends.length === 0 ? (
         <EmptyState
-          title="No spends yet"
-          description="Start tracking your expenses."
+          title={hasActiveFilters ? "No matching spends" : "No spends yet"}
+          description={hasActiveFilters ? "Try adjusting your filters." : "Start tracking your expenses."}
           action={
-            <Link
-              href="/spends/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-            >
-              Create your first spend
-            </Link>
+            hasActiveFilters ? (
+              <button
+                onClick={resetFilters}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition"
+              >
+                Clear filters
+              </button>
+            ) : (
+              <Link
+                href="/spends/new"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+              >
+                Create your first spend
+              </Link>
+            )
           }
         />
       ) : (
@@ -228,6 +440,16 @@ export default function SpendsPage() {
           )}
         </>
       )}
+
+      <Link
+        href="/spends/new"
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 md:hidden inline-flex items-center gap-2 px-5 py-3 rounded-full bg-primary text-primary-foreground text-sm font-medium shadow-lg hover:opacity-90 transition z-50"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        New spend
+      </Link>
     </div>
   );
 }
