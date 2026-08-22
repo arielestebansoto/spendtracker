@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
@@ -17,6 +17,11 @@ type Spend = {
   amount: number;
   spendDate: string;
   description: string;
+};
+
+type Category = {
+  id: string;
+  name: string;
 };
 
 type PageResponse<T> = {
@@ -40,6 +45,17 @@ function formatDate(dateStr: string) {
   });
 }
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 export default function SpendsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -56,12 +72,44 @@ export default function SpendsPage() {
 
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [description, setDescription] = useState("");
+  const [minAmount, setMinAmount] = useState<string>("");
+  const [maxAmount, setMaxAmount] = useState<string>("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const debouncedDescription = useDebounce(description, 300);
+  const debouncedMinAmount = useDebounce(minAmount, 300);
+  const debouncedMaxAmount = useDebounce(maxAmount, 300);
+
+  const hasActiveFilters = categoryId || description || minAmount || maxAmount || startDate || endDate;
+
+  useEffect(() => {
+    if (!user) return;
+    apiFetch("/api/v1/categories")
+      .then((res) => res.json())
+      .then((data: Category[]) => setCategories(data))
+      .catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 
     let cancelled = false;
 
-    apiFetch(`/api/v1/spends?page=${currentPage}`)
+    const params = new URLSearchParams({ page: String(currentPage) });
+    if (categoryId) params.set("categoryId", categoryId);
+    if (debouncedDescription) params.set("description", debouncedDescription);
+    if (debouncedMinAmount) params.set("minAmount", debouncedMinAmount);
+    if (debouncedMaxAmount) params.set("maxAmount", debouncedMaxAmount);
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+
+    apiFetch(`/api/v1/spends?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load spends");
         return res.json();
@@ -81,7 +129,39 @@ export default function SpendsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, currentPage]);
+  }, [user, currentPage, categoryId, debouncedDescription, debouncedMinAmount, debouncedMaxAmount, startDate, endDate]);
+
+  const prevFiltersRef = useRef({
+    categoryId, debouncedDescription, debouncedMinAmount, debouncedMaxAmount, startDate, endDate
+  });
+
+  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    const changed =
+      prev.categoryId !== categoryId ||
+      prev.debouncedDescription !== debouncedDescription ||
+      prev.debouncedMinAmount !== debouncedMinAmount ||
+      prev.debouncedMaxAmount !== debouncedMaxAmount ||
+      prev.startDate !== startDate ||
+      prev.endDate !== endDate;
+
+    if (changed && currentPage !== 0) {
+      setCurrentPage(0);
+    }
+
+    prevFiltersRef.current = {
+      categoryId, debouncedDescription, debouncedMinAmount, debouncedMaxAmount, startDate, endDate
+    };
+  }, [categoryId, debouncedDescription, debouncedMinAmount, debouncedMaxAmount, startDate, endDate, currentPage]);
+
+  function resetFilters() {
+    setCategoryId("");
+    setDescription("");
+    setMinAmount("");
+    setMaxAmount("");
+    setStartDate("");
+    setEndDate("");
+  }
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -149,19 +229,132 @@ export default function SpendsPage() {
         </Link>
       </div>
 
+      <div className="mb-6">
+        <button
+          onClick={() => setFiltersOpen(!filtersOpen)}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+          </svg>
+          Filters
+          {hasActiveFilters && (
+            <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-xs">
+              Active
+            </span>
+          )}
+        </button>
+
+        {filtersOpen && (
+          <div className="mt-3 p-4 rounded-lg border border-border bg-card">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                >
+                  <option value="">All categories</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Description</label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Search description..."
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Min amount</label>
+                  <input
+                    type="number"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Max amount</label>
+                  <input
+                    type="number"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    placeholder="No limit"
+                    min="0"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Start date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">End date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                />
+              </div>
+            </div>
+
+            {hasActiveFilters && (
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={resetFilters}
+                  className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent transition"
+                >
+                  Reset filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {status === "loading" ? (
         <LoadingState />
       ) : spends.length === 0 ? (
         <EmptyState
-          title="No spends yet"
-          description="Start tracking your expenses."
+          title={hasActiveFilters ? "No matching spends" : "No spends yet"}
+          description={hasActiveFilters ? "Try adjusting your filters." : "Start tracking your expenses."}
           action={
-            <Link
-              href="/spends/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-            >
-              Create your first spend
-            </Link>
+            hasActiveFilters ? (
+              <button
+                onClick={resetFilters}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent transition"
+              >
+                Clear filters
+              </button>
+            ) : (
+              <Link
+                href="/spends/new"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+              >
+                Create your first spend
+              </Link>
+            )
           }
         />
       ) : (

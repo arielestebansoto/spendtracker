@@ -1,5 +1,6 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
@@ -79,13 +80,20 @@ public class SpendController {
             direction = Sort.Direction.DESC
         )
         Pageable pageable,
+        @RequestParam(name = "categoryId", required = false) UUID categoryId,
+        @RequestParam(name = "description", required = false) String description,
+        @RequestParam(name = "minAmount", required = false) BigDecimal minAmount,
+        @RequestParam(name = "maxAmount", required = false) BigDecimal maxAmount,
+        @RequestParam(name = "startDate", required = false) LocalDate startDate,
+        @RequestParam(name = "endDate", required = false) LocalDate endDate,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
 
-        return spendService.findAllByUserId(
-            user.getId(),
+        return spendService.findByFilters(
+            user.getId(), categoryId, description,
+            minAmount, maxAmount, startDate, endDate,
             pageable
         );
      }

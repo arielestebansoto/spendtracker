@@ -68,6 +68,31 @@ public class SpendService {
             });
     }
 
+    public Page<SpendListItemResponse> findByFilters(
+        UUID userId,
+        UUID categoryId,
+        String description,
+        BigDecimal minAmount,
+        BigDecimal maxAmount,
+        LocalDate startDate,
+        LocalDate endDate,
+        Pageable pageable
+    ) {
+        return spendRepository
+            .findByFilters(
+                userId, categoryId, description,
+                minAmount, maxAmount, startDate, endDate,
+                pageable
+            )
+            .map(s -> new SpendListItemResponse(
+                s.getId(),
+                s.getCategory().getName(),
+                s.getAmount(),
+                s.getSpendDate(),
+                s.getDescription()
+            ));
+    }
+
     public CreateSpendResponse create(
         CreateSpendRequest request,
         UserApp user
