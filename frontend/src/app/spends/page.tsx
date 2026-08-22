@@ -232,7 +232,11 @@ export default function SpendsPage() {
       <div className="mb-6">
         <button
           onClick={() => setFiltersOpen(!filtersOpen)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+            hasActiveFilters
+              ? "bg-primary text-primary-foreground"
+              : "border border-border hover:bg-accent"
+          }`}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
@@ -245,8 +249,9 @@ export default function SpendsPage() {
           )}
         </button>
 
-        {filtersOpen && (
-          <div className="mt-3 p-4 rounded-lg border border-border bg-card">
+        <div className={`grid transition-all duration-200 ease-in-out ${filtersOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+          <div className="overflow-hidden">
+            <div className="mt-3 p-4 rounded-lg border border-border bg-card shadow-lg">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
@@ -323,14 +328,15 @@ export default function SpendsPage() {
               <div className="mt-4 flex justify-end">
                 <button
                   onClick={resetFilters}
-                  className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent transition"
+                  className="px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition"
                 >
                   Reset filters
                 </button>
               </div>
             )}
           </div>
-        )}
+          </div>
+        </div>
       </div>
 
       {status === "loading" ? (
@@ -343,7 +349,7 @@ export default function SpendsPage() {
             hasActiveFilters ? (
               <button
                 onClick={resetFilters}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition"
               >
                 Clear filters
               </button>
