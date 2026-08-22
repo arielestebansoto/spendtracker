@@ -158,7 +158,6 @@ export default function SpendsPage() {
   function resetFilters() {
     setDraft(emptyFilters);
     setApplied(emptyFilters);
-    setFiltersOpen(false);
   }
 
   function openFilters() {
