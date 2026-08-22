@@ -78,12 +78,13 @@ public class SpendService {
         LocalDate endDate,
         Pageable pageable
     ) {
+        var spec = SpendSpecification.withFilters(
+            userId, categoryId, description,
+            minAmount, maxAmount, startDate, endDate
+        );
+
         return spendRepository
-            .findByFilters(
-                userId, categoryId, description,
-                minAmount, maxAmount, startDate, endDate,
-                pageable
-            )
+            .findAll(spec, pageable)
             .map(s -> new SpendListItemResponse(
                 s.getId(),
                 s.getCategory().getName(),
