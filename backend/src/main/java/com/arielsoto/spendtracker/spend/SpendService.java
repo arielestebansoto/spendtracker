@@ -1,9 +1,13 @@
 package com.arielsoto.spendtracker.spend;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +15,7 @@ import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
+import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
@@ -139,6 +144,41 @@ public class SpendService {
         );
 
         spendRepository.deleteAll(spends);
+    }
+
+    public DashboardSummaryResponse getDashboardSummary(
+        UUID userId,
+        LocalDate startDate,
+        LocalDate endDate,
+        int recentLimit
+    ) {
+        BigDecimal total = spendRepository
+            .sumAmountByUserIdAndSpendDateBetween(userId, startDate, endDate);
+
+        long count = spendRepository
+            .countByUserIdAndSpendDateBetween(userId, startDate, endDate);
+
+        BigDecimal average = count > 0
+            ? total.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
+            : BigDecimal.ZERO;
+
+        List<SpendListItemResponse> recentSpends = spendRepository
+            .findTopNByUserIdAndSpendDateBetween(
+                userId, startDate, endDate,
+                PageRequest.of(0, recentLimit)
+            )
+            .map(s -> new SpendListItemResponse(
+                s.getId(),
+                s.getCategory().getName(),
+                s.getAmount(),
+                s.getSpendDate(),
+                s.getDescription()
+            ))
+            .getContent();
+
+        return new DashboardSummaryResponse(
+            total, count, average, recentSpends
+        );
     }
 
     private Category resolveCategory(UUID categoryId) {

@@ -36,6 +36,38 @@ public interface SpendRepository extends JpaRepository<Spend, UUID> {
 
     long countByUserId(UUID userId);
 
+    @Query("""
+        SELECT COALESCE(SUM(s.amount), 0)
+        FROM Spend s
+        WHERE s.user.id = :userId
+        AND s.spendDate BETWEEN :startDate AND :endDate
+    """)
+    java.math.BigDecimal sumAmountByUserIdAndSpendDateBetween(
+        @Param("userId") UUID userId,
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate
+    );
+
+    long countByUserIdAndSpendDateBetween(
+        UUID userId,
+        LocalDate startDate,
+        LocalDate endDate
+    );
+
+    @Query("""
+        SELECT s
+        FROM Spend s
+        JOIN FETCH s.category
+        WHERE s.user.id = :userId
+        AND s.spendDate BETWEEN :startDate AND :endDate
+    """)
+    Page<Spend> findTopNByUserIdAndSpendDateBetween(
+        @Param("userId") UUID userId,
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate,
+        Pageable pageable
+    );
+
     void deleteByIdAndUserId(UUID id, UUID userId);
 
     List<Spend> findAllByUserId(UUID userId);
