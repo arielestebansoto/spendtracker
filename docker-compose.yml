@@ -1,32 +1,6 @@
 services:
-  postgres:
-    image: postgres:17
-    mem_limit: 256m
-
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
-    networks:
-      - app
-
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   backend:
     mem_limit: 512m
-
-    depends_on:
-      postgres:
-        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
@@ -42,9 +16,9 @@ services:
       JAVA_TOOL_OPTIONS: "-Xms64m -Xmx256m"
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
 
-      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASS: ${POSTGRES_PASSWORD}
+      DB_URL: ${DB_URL}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
 
       OAUTH2_GITHUB_CLIENT_ID: ${OAUTH2_GITHUB_CLIENT_ID}
       OAUTH2_GITHUB_CLIENT_SECRET: ${OAUTH2_GITHUB_CLIENT_SECRET}
@@ -60,9 +34,6 @@ services:
 
     networks:
       - app
-
-volumes:
-  postgres-data:
 
 networks:
   app:
