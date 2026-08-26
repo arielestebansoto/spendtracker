@@ -56,9 +56,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const consent = await checkConsentStatus();
-        if (!cancelled && !consent.hasAcceptedPolicies) {
-          setNeedsConsent(true);
+        if (!PUBLIC_ROUTES.includes(pathname)) {
+          const consent = await checkConsentStatus();
+          if (!cancelled && !consent.hasAcceptedPolicies) {
+            setNeedsConsent(true);
+          }
         }
       } finally {
         if (!cancelled) setIsLoading(false);
