@@ -2,6 +2,7 @@ package com.arielsoto.spendtracker.storage;
 
 import java.util.UUID;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.core.io.Resource;
 
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.arielsoto.spendtracker.user.UserApp;
 
 @Service
+@ConditionalOnBean(FileStorageService.class)
 public class SpendReceiptStorageService {
 
     private final FileStorageService fileStorageService;

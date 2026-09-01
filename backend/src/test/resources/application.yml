@@ -1,0 +1,7 @@
+app:
+  storage:
+    s3:
+      bucket-name: test-bucket
+      region: us-east-1
+      access-key-id: test-key
+      secret-access-key: test-secret
