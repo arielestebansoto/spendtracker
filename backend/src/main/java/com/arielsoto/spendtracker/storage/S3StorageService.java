@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -86,6 +87,16 @@ public class S3StorageService implements FileStorageService {
                 e
             );
         }
+    }
+
+    @Override
+    public void deleteFile(String key) {
+        s3Client.deleteObject(
+            DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(key)
+                .build()
+        );
     }
 
     @Override

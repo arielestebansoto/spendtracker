@@ -24,6 +24,7 @@ public class SpendReceiptStorageService {
 
     public StoredFile store(
         UserApp user,
+        UUID spendId,
         MultipartFile file
     ) {
 
@@ -34,7 +35,7 @@ public class SpendReceiptStorageService {
         String key = String.format(
             "spends/%s/%s.%s",
             user.getId(),
-            UUID.randomUUID(),
+            spendId,
             extension
         );
 
@@ -61,6 +62,10 @@ public class SpendReceiptStorageService {
 
     public Resource getResource(String key) {
         return fileStorageService.load(key);
+    }
+
+    public void deleteFile(String key) {
+        fileStorageService.deleteFile(key);
     }
 
     public void deleteAllReceiptsByUser(UserApp user) {
