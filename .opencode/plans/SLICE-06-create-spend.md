@@ -12,6 +12,11 @@ Single endpoint that handles the full pipeline: upload → OCR → classify → 
 
 **File**: `backend/src/main/java/com/arielsoto/spendtracker/receipt/ReceiptProcessingService.java` (new)
 
+Follows existing logging conventions:
+- `log.info("event_type key=value ...")` for structured lifecycle events
+- `log.error("message", exception)` for failures
+- Timing logs for OCR and classification steps (critical path)
+
 ```java
 package com.arielsoto.spendtracker.receipt;
 
@@ -49,32 +54,76 @@ public class ReceiptProcessingService {
         MultipartFile file,
         UUID categoryId
     ) {
+        log.info(
+            "receipt_processing_start userId={} fileName={} fileSize={} contentType={} categoryId={}",
+            user.getId(),
+            file.getOriginalFilename(),
+            file.getSize(),
+            file.getContentType(),
+            categoryId
+        );
+
+        long startTime = System.currentTimeMillis();
+
         // Step 1: Store file in S3
         StoredFile storedFile = receiptService.storeReceipt(user, file);
+        log.info(
+            "receipt_stored userId={} s3Key={} durationMs={}",
+            user.getId(),
+            storedFile.key(),
+            System.currentTimeMillis() - startTime
+        );
 
         // Step 2: Extract text with OCR
         OcrResult ocrResult;
+        long ocrStart = System.currentTimeMillis();
         try {
             byte[] imageBytes = file.getBytes();
             ocrResult = ocrService.extractText(imageBytes, file.getContentType());
+            log.info(
+                "receipt_ocr_success userId={} s3Key={} durationMs={}",
+                user.getId(),
+                storedFile.key(),
+                System.currentTimeMillis() - ocrStart
+            );
         } catch (Exception e) {
-            log.error("OCR failed for receipt: {}", storedFile.key(), e);
-            // Create spend without OCR data
+            log.error("Receipt OCR failed for s3Key={}", storedFile.key(), e);
             return createSpendWithoutOcr(user, storedFile, categoryId);
         }
 
         // Step 3: Classify with Bedrock
         ClassifiedSpend classified;
+        long classifyStart = System.currentTimeMillis();
         try {
             classified = classifierService.classify(ocrResult.rawText());
+            log.info(
+                "receipt_classification_success userId={} s3Key={} category={} totalAmount={} durationMs={}",
+                user.getId(),
+                storedFile.key(),
+                classified.category(),
+                classified.totalAmount(),
+                System.currentTimeMillis() - classifyStart
+            );
         } catch (Exception e) {
-            log.error("Classification failed for receipt: {}", storedFile.key(), e);
-            // Create spend with OCR text but no classification
+            log.error("Receipt classification failed for s3Key={}", storedFile.key(), e);
             return createSpendWithOcrOnly(user, storedFile, ocrResult, categoryId);
         }
 
         // Step 4: Create spend with full data
-        return createSpendWithClassification(user, storedFile, ocrResult, classified, categoryId);
+        SpendProcessingResult result = createSpendWithClassification(
+            user, storedFile, ocrResult, classified, categoryId
+        );
+
+        log.info(
+            "receipt_processing_complete userId={} s3Key={} spendId={} status={} totalMs={}",
+            user.getId(),
+            storedFile.key(),
+            result.spend().getId(),
+            result.status(),
+            System.currentTimeMillis() - startTime
+        );
+
+        return result;
     }
 
     private SpendProcessingResult createSpendWithClassification(
@@ -97,6 +146,11 @@ public class ReceiptProcessingService {
         OcrResult ocrResult,
         UUID categoryId
     ) {
+        log.info(
+            "receipt_fallback_ocr_only userId={} s3Key={}",
+            user.getId(),
+            storedFile.key()
+        );
         // Create Spend with OCR text as description
         // Create ReceiptMetadata
         // No SpendItems
@@ -108,6 +162,11 @@ public class ReceiptProcessingService {
         StoredFile storedFile,
         UUID categoryId
     ) {
+        log.info(
+            "receipt_fallback_no_ocr userId={} s3Key={}",
+            user.getId(),
+            storedFile.key()
+        );
         // Create Spend with minimal data
         // No ReceiptMetadata
         // Flag that OCR failed
@@ -154,11 +213,27 @@ public CreateSpendResponse createFromReceipt(
     OAuth2AuthenticationToken authentication
 ) {
     UserApp user = authenticatedUserService.getCurrentUser(authentication);
-    
+
+    log.info(
+        "api_create_spend_from_receipt userId={} fileName={} fileSize={}",
+        user.getId(),
+        file.getOriginalFilename(),
+        file.getSize()
+    );
+
     SpendProcessingResult result = receiptProcessingService.processReceipt(
         user, file, categoryId
     );
-    
+
+    if (result.status() != SpendProcessingResult.ProcessingStatus.SUCCESS) {
+        log.warn(
+            "api_create_spend_from_receipt_partial userId={} status={} errorMessage={}",
+            user.getId(),
+            result.status(),
+            result.errorMessage()
+        );
+    }
+
     // Handle partial success (OCR succeeded but classification failed)
     // Return CreateSpendResponse with receiptUrl
 }
@@ -177,6 +252,28 @@ public CreateSpendResponse createWithReceipt(
     // Similar to existing create() but sets receiptKey/receiptContentType
 }
 ```
+
+---
+
+## Observability
+
+Structured logging added at every pipeline step following existing conventions (`"event_type key=value"`):
+
+| Log Event | Level | Purpose |
+|---|---|---|
+| `receipt_processing_start` | INFO | Pipeline entry with file metadata |
+| `receipt_stored` | INFO | S3 upload completion + duration |
+| `receipt_ocr_success` | INFO | OCR completion + duration |
+| `receipt_ocr_failed` | ERROR | OCR failure with exception |
+| `receipt_classification_success` | INFO | Classification result + duration |
+| `receipt_classification_failed` | ERROR | Classification failure with exception |
+| `receipt_fallback_ocr_only` | INFO | Fallback path: OCR succeeded, classification failed |
+| `receipt_fallback_no_ocr` | INFO | Fallback path: OCR failed |
+| `receipt_processing_complete` | INFO | Pipeline end with spend ID + total duration |
+| `api_create_spend_from_receipt` | INFO | Controller entry |
+| `api_create_spend_from_receipt_partial` | WARN | Controller: non-success status |
+
+All logs include `userId` for per-user filtering. Duration fields enable performance monitoring of OCR and classification calls.
 
 ---
 
