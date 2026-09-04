@@ -41,7 +41,7 @@ dependencies {
 	implementation("net.logstash.logback:logstash-logback-encoder:8.1")
 	implementation platform('software.amazon.awssdk:bom:2.31.26')
 	implementation 'software.amazon.awssdk:s3'
-	implementation 'com.google.cloud:google-cloud-vision:3.92.0'
+	implementation 'software.amazon.awssdk:textract'
 }
 
 tasks.named('test') {
