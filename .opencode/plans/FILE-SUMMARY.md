@@ -18,12 +18,11 @@
 - `backend/src/main/java/com/arielsoto/spendtracker/ocr/OcrResult.java`
 
 ### Classification (SLICE-04)
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiClassificationService.java`
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiProperties.java`
+- `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockClassificationService.java`
+- `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockProperties.java`
 - `backend/src/main/java/com/arielsoto/spendtracker/classifier/ClassifiedSpend.java`
 - `backend/src/main/java/com/arielsoto/spendtracker/classifier/ClassificationPrompt.java`
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiRequest.java`
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiResponse.java`
+- `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockRequest.java`
 
 ### Metadata (SLICE-05)
 - `backend/src/main/java/com/arielsoto/spendtracker/receipt/ReceiptMetadata.java`
@@ -39,12 +38,12 @@
 ## Modified Backend Files
 
 - `backend/build.gradle` - Add AWS SDK, Google Cloud Vision, WebClient dependencies
-- `backend/src/main/resources/application.yml` - Add S3, OCR, Gemini config
+- `backend/src/main/resources/application.yml` - Add S3, OCR, Bedrock config
 - `backend/src/main/java/com/arielsoto/spendtracker/spend/SpendController.java` - Add receipt endpoints
 - `backend/src/main/java/com/arielsoto/spendtracker/spend/SpendService.java` - Add receipt-based creation
 - `backend/src/main/java/com/arielsoto/spendtracker/spend/Spend.java` - Add ReceiptMetadata and SpendItem relationships
 - `backend/src/main/java/com/arielsoto/spendtracker/user/UserController.java` - Add S3 cleanup on account deletion
-- `docker-compose.yml` - Add S3, OCR, Gemini env vars
+- `docker-compose.yml` - Add S3, OCR, Bedrock env vars
 
 ## Deleted Backend Files
 
@@ -70,12 +69,8 @@ AWS_ACCESS_KEY_ID=xxx
 AWS_SECRET_ACCESS_KEY=xxx
 S3_BUCKET_NAME=spendtracker-receipts
 
-# Google Cloud Vision
-GOOGLE_CLOUD_PROJECT_ID=xxx
-GOOGLE_CLOUD_APPLICATION_CREDENTIALS=/path/to/service-account.json
-
-# Google Gemini
-GEMINI_API_KEY=xxx
+# AWS Bedrock
+BEDROCK_MODEL_ID=amazon.titan-text-lite-v1
 ```
 
 ## Dependencies
@@ -83,8 +78,8 @@ GEMINI_API_KEY=xxx
 ### Backend (build.gradle)
 ```gradle
 implementation 'software.amazon.awssdk:s3'
-implementation 'com.google.cloud:google-cloud-vision'
-implementation 'org.springframework.boot:spring-boot-starter-webflux'
+implementation 'software.amazon.awssdk:textract'
+implementation 'software.amazon.awssdk:bedrockruntime'
 ```
 
 ### Frontend

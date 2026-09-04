@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Goal**: User uploads receipt image → S3 stores file → Google Vision extracts text → Google Gemini classifies spend → backend auto-creates spend with metadata → user sees result and can edit later.
+**Goal**: User uploads receipt image → S3 stores file → AWS Textract extracts text → AWS Bedrock classifies spend → backend auto-creates spend with metadata → user sees result and can edit later.
 
 **Architecture**: Vertical slice architecture. Each slice is a complete, testable feature.
 
@@ -58,38 +58,36 @@
 
 ---
 
-### SLICE-03: Google Vision OCR
+### SLICE-03: AWS Textract OCR
 
-**Goal**: Extract text from receipt images using Google Cloud Vision API.
+**Goal**: Extract text from receipt images using AWS Textract.
 
 **Backend**:
-- Add Google Cloud Vision dependency (`com.google.cloud:google-cloud-vision`)
-- Create `OcrProperties` (config for Google credentials/project)
-- Create `VisionOcrService` to call Google Vision API `IMAGE_TEXT_DETECTION`
+- Add AWS Textract dependency (`software.amazon.awssdk:textract`)
+- Create `TextractOcrService` to call Textract `DetectDocumentText`
 - Create `OcrResult` record with raw text and structured fields
 - Handle errors (API limits, invalid images)
 
 **Files**:
-- `backend/src/main/java/com/arielsoto/spendtracker/ocr/VisionOcrService.java` (new)
-- `backend/src/main/java/com/arielsoto/spendtracker/ocr/OcrProperties.java` (new)
+- `backend/src/main/java/com/arielsoto/spendtracker/ocr/TextractOcrService.java` (new)
 - `backend/src/main/java/com/arielsoto/spendtracker/ocr/OcrResult.java` (new record)
 
 ---
 
-### SLICE-04: Google Gemini Classification
+### SLICE-04: AWS Bedrock Classification
 
-**Goal**: Use Gemini API to classify OCR text into spend data (amount, category, description, date).
+**Goal**: Use AWS Bedrock with Amazon Titan to classify OCR text into spend data (amount, category, description, date).
 
 **Backend**:
-- Add Gemini API client (REST via `WebClient` or HTTP interface)
-- Create `GeminiProperties` (config for API key)
-- Create `GeminiClassificationService` to send OCR text → get structured spend data
+- Add AWS Bedrock Runtime dependency (`software.amazon.awssdk:bedrockruntime`)
+- Create `BedrockProperties` (config for model ID)
+- Create `BedrockClassificationService` to send OCR text → get structured spend data
 - Create `ClassifiedSpend` record with parsed fields
 - Create prompt template for classification
 
 **Files**:
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiClassificationService.java` (new)
-- `backend/src/main/java/com/arielsoto/spendtracker/classifier/GeminiProperties.java` (new)
+- `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockClassificationService.java` (new)
+- `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockProperties.java` (new)
 - `backend/src/main/java/com/arielsoto/spendtracker/classifier/ClassifiedSpend.java` (new record)
 - `backend/src/main/java/com/arielsoto/spendtracker/classifier/ClassificationPrompt.java` (new)
 
@@ -202,11 +200,11 @@
 // AWS S3
 implementation 'software.amazon.awssdk:s3'
 
-// Google Cloud Vision
-implementation 'com.google.cloud:google-cloud-vision'
+// AWS Textract
+implementation 'software.amazon.awssdk:textract'
 
-// Google Gemini (REST client)
-implementation 'org.springframework.boot:spring-boot-starter-webflux'  // for WebClient
+// AWS Bedrock
+implementation 'software.amazon.awssdk:bedrockruntime'
 ```
 
 ### Frontend
@@ -223,12 +221,8 @@ AWS_ACCESS_KEY_ID=xxx
 AWS_SECRET_ACCESS_KEY=xxx
 S3_BUCKET_NAME=spendtracker-receipts
 
-# Google Cloud Vision
-GOOGLE_CLOUD_PROJECT_ID=xxx
-GOOGLE_CLOUD_APPLICATION_CREDENTIALS=/path/to/service-account.json
-
-# Google Gemini
-GEMINI_API_KEY=xxx
+# AWS Bedrock
+BEDROCK_MODEL_ID=amazon.titan-text-lite-v1
 ```
 
 ---
@@ -247,7 +241,7 @@ GEMINI_API_KEY=xxx
 
 ## Risk Mitigation
 
-- **Google Vision API costs**: Implement rate limiting, cache OCR results
-- **Gemini API latency**: Consider async processing with status polling
+- **AWS Textract costs**: Implement rate limiting, cache OCR results
+- **AWS Bedrock latency**: Consider async processing with status polling
 - **S3 costs**: Lifecycle policy to delete old receipts after X days
 - **Fallback**: If OCR/classification fails, allow user to manually enter data

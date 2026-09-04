@@ -16,9 +16,9 @@ Single endpoint that handles the full pipeline: upload → OCR → classify → 
 package com.arielsoto.spendtracker.receipt;
 
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
-import com.arielsoto.spendtracker.classifier.GeminiClassificationService;
+import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.ocr.VisionOcrService;
+import com.arielsoto.spendtracker.ocr.TextractOcrService;
 import com.arielsoto.spendtracker.spend.*;
 import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
@@ -38,8 +38,8 @@ import java.util.List;
 public class ReceiptProcessingService {
 
     private final ReceiptService receiptService;
-    private final VisionOcrService ocrService;
-    private final GeminiClassificationService classifierService;
+    private final TextractOcrService ocrService;
+    private final BedrockClassificationService classifierService;
     private final SpendService spendService;
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
@@ -63,7 +63,7 @@ public class ReceiptProcessingService {
             return createSpendWithoutOcr(user, storedFile, categoryId);
         }
 
-        // Step 3: Classify with Gemini
+        // Step 3: Classify with Bedrock
         ClassifiedSpend classified;
         try {
             classified = classifierService.classify(ocrResult.rawText());
