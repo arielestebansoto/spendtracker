@@ -2,7 +2,6 @@ package com.arielsoto.spendtracker.ocr;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.textract.TextractClient;
@@ -13,7 +12,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-@EnableConfigurationProperties(OcrProperties.class)
 public class TextractOcrService {
 
     private static final Logger log = LoggerFactory.getLogger(TextractOcrService.class);
