@@ -19,6 +19,7 @@ import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
+import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.transaction.Transactional;
@@ -204,6 +205,35 @@ public class SpendService {
 
         return new DashboardSummaryResponse(
             total, count, average, recentSpends
+        );
+    }
+
+    public CreateSpendResponse createWithReceipt(
+        CreateSpendRequest request,
+        UserApp user,
+        StoredFile storedFile
+    ) {
+        Category category = resolveCategory(request.categoryId());
+
+        Spend spend = Spend.builder()
+            .user(user)
+            .category(category)
+            .description(request.description())
+            .amount(request.amount())
+            .spendDate(request.spendDate())
+            .receiptKey(storedFile.key())
+            .receiptContentType(storedFile.contentType())
+            .build();
+
+        Spend saved = spendRepository.save(spend);
+
+        return new CreateSpendResponse(
+            saved.getId(),
+            saved.getCategory().getId(),
+            saved.getCategory().getName(),
+            saved.getDescription(),
+            saved.getAmount(),
+            saved.getSpendDate()
         );
     }
 

@@ -39,6 +39,9 @@ public class ReceiptMetadata {
     @Column(name = "raw_response", columnDefinition = "jsonb")
     private Map<String, Object> rawResponse;
 
+    @Column(name = "processing_status", length = 30)
+    private String processingStatus;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 }
