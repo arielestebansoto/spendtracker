@@ -8,6 +8,28 @@ Single endpoint that handles the full pipeline: upload → OCR → classify → 
 
 ## Tasks
 
+### 6.0 Add processing_status to receipt_metadata
+
+**Migration**: `backend/src/main/resources/db/migration/V7__add_processing_status_to_receipt_metadata.sql` (new)
+
+```sql
+ALTER TABLE receipt_metadata
+    ADD COLUMN processing_status VARCHAR(30);
+```
+
+**Entity change**: `backend/src/main/java/com/arielsoto/spendtracker/receipt/ReceiptMetadata.java`
+
+Add field:
+
+```java
+@Column(name = "processing_status", length = 30)
+private String processingStatus;
+```
+
+The `SpendProcessingResult.ProcessingStatus` enum values (`SUCCESS`, `OCR_FAILED`, `CLASSIFICATION_FAILED`, `PARTIAL_SUCCESS`) map 1:1 to this column. Stored as String to avoid introducing a Postgres enum type — the enum lives in Java only.
+
+---
+
 ### 6.1 Create ReceiptProcessingService
 
 **File**: `backend/src/main/java/com/arielsoto/spendtracker/receipt/ReceiptProcessingService.java` (new)
@@ -135,7 +157,7 @@ public class ReceiptProcessingService {
     ) {
         // Resolve category (use classified category if categoryId not provided)
         // Create Spend entity
-        // Create ReceiptMetadata entity
+        // Create ReceiptMetadata entity with processingStatus = SUCCESS
         // Create SpendItem entities
         // Return result with all data
     }
@@ -152,9 +174,8 @@ public class ReceiptProcessingService {
             storedFile.key()
         );
         // Create Spend with OCR text as description
-        // Create ReceiptMetadata
+        // Create ReceiptMetadata with processingStatus = CLASSIFICATION_FAILED
         // No SpendItems
-        // Flag that classification failed
     }
 
     private SpendProcessingResult createSpendWithoutOcr(
@@ -168,8 +189,7 @@ public class ReceiptProcessingService {
             storedFile.key()
         );
         // Create Spend with minimal data
-        // No ReceiptMetadata
-        // Flag that OCR failed
+        // No ReceiptMetadata (no OCR data to store)
         // User will need to edit manually
     }
 }
@@ -269,7 +289,7 @@ Structured logging added at every pipeline step following existing conventions (
 | `receipt_classification_failed` | ERROR | Classification failure with exception |
 | `receipt_fallback_ocr_only` | INFO | Fallback path: OCR succeeded, classification failed |
 | `receipt_fallback_no_ocr` | INFO | Fallback path: OCR failed |
-| `receipt_processing_complete` | INFO | Pipeline end with spend ID + total duration |
+| `receipt_processing_complete` | INFO | Pipeline end with spend ID, status, and total duration |
 | `api_create_spend_from_receipt` | INFO | Controller entry |
 | `api_create_spend_from_receipt_partial` | WARN | Controller: non-success status |
 
@@ -299,3 +319,5 @@ All logs include `userId` for per-user filtering. Duration fields enable perform
 - Remove `ReceiptProcessingService.java`, `SpendProcessingResult.java`
 - Remove new endpoint from `SpendController`
 - Revert `SpendService` changes
+- Remove `processing_status` column from `receipt_metadata` (or drop V7 migration)
+- Revert `ReceiptMetadata.java` entity changes
