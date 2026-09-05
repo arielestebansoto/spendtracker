@@ -17,8 +17,8 @@ Redesign spend creation to support both receipt upload and manual entry, with di
 2. "Enter manually" toggle button at bottom
 3. When receipt is uploaded:
    - Show processing state
-   - Auto-fill form with classified data
-   - User reviews and edits
+   - Backend creates spend with AI classification
+   - Redirect to spend detail page
 4. When "Enter manually" is clicked:
    - Hide receipt upload
    - Show traditional form (current behavior)
@@ -28,14 +28,15 @@ Redesign spend creation to support both receipt upload and manual entry, with di
    - Left: Receipt upload with drag-and-drop
    - Right: Manual form
 2. When receipt is uploaded:
-   - Left: Show receipt preview
-   - Right: Auto-fill form with classified data
-3. User can always edit the form regardless of upload state
+   - Show processing state
+   - Backend creates spend with AI classification
+   - Redirect to spend detail page
+3. User can always use manual form regardless of upload state
 
 **Key States**:
 - `mode`: "receipt" | "manual" (mobile only)
-- `status`: "idle" | "uploading" | "processing" | "ready" | "error"
-- `form`: FormState (auto-filled or manual)
+- `status`: "idle" | "uploading" | "processing" | "error"
+- `form`: FormState (manual mode only)
 
 ### 9.2 Add API Helper for Receipt Upload
 
@@ -44,36 +45,19 @@ Redesign spend creation to support both receipt upload and manual entry, with di
 ```typescript
 import { apiFetch } from "./api";
 
-export type ReceiptUploadResponse = {
-  receiptUrl: string;
-  contentType: string;
-  size: number;
+export type CreateSpendFromReceiptResponse = {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  description: string;
+  amount: number;
+  spendDate: string;
 };
-
-export async function uploadReceipt(
-  spendId: string,
-  file: File
-): Promise<ReceiptUploadResponse> {
-  const formData = new FormData();
-  formData.append("receipt", file);
-
-  const response = await apiFetch(`/api/v1/spends/${spendId}/receipt`, {
-    method: "POST",
-    body: formData,
-    // Note: Don't set Content-Type header, browser will set it with boundary
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to upload receipt");
-  }
-
-  return response.json();
-}
 
 export async function createSpendFromReceipt(
   file: File,
   categoryId?: string
-): Promise<CreateSpendResponse> {
+): Promise<CreateSpendFromReceiptResponse> {
   const formData = new FormData();
   formData.append("receipt", file);
   if (categoryId) {
@@ -93,9 +77,11 @@ export async function createSpendFromReceipt(
 }
 ```
 
+**Note**: The backend handles both receipt upload AND spend creation in a single call. There is no separate upload endpoint.
+
 ### 9.3 Update Form State
 
-The form state will be extended to include receipt-related data:
+The form state (manual mode only):
 
 ```typescript
 type FormState = {
@@ -103,26 +89,19 @@ type FormState = {
   description: string;
   amount: string;
   spendDate: string;
-  receiptFile: File | null;
-  receiptPreview: string | null;
 };
 ```
 
-### 9.4 Handle OCR Response
+### 9.4 Handle Receipt Response
 
-When the backend returns classified data, auto-fill the form:
+When the backend returns the created spend data:
 
 ```typescript
-const classified = await createSpendFromReceipt(file, categoryId);
+const created = await createSpendFromReceipt(file, categoryId);
 
-setForm({
-  categoryId: classified.categoryId || "",
-  description: classified.description || "",
-  amount: classified.amount?.toString() || "",
-  spendDate: classified.spendDate || new Date().toISOString().slice(0, 10),
-  receiptFile: file,
-  receiptPreview: URL.createObjectURL(file),
-});
+// Receipt uploaded, spend created, AI classified it
+// Redirect to spend detail page
+navigate(`/spends/${created.id}`);
 ```
 
 ---
@@ -133,8 +112,7 @@ setForm({
 2. Manual test: Mobile - toggle between receipt and manual mode
 3. Manual test: Desktop - drag and drop receipt
 4. Manual test: Desktop - manual form works independently
-5. Manual test: Auto-fill works correctly
-6. Manual test: User can edit auto-filled data
+5. Manual test: Receipt upload creates spend and redirects
 
 ---
 
