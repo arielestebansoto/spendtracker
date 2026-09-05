@@ -32,8 +32,6 @@ public class ReceiptProcessingService {
     private final CategoryRepository categoryRepository;
     private final TextractOcrService ocrService;
     private final BedrockClassificationService classifierService;
-    private final ReceiptValidator receiptValidator;
-
     // Storage is optional - may not be configured in dev
     private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
 
@@ -53,7 +51,7 @@ public class ReceiptProcessingService {
 
         long startTime = System.currentTimeMillis();
 
-        receiptValidator.validate(file);
+        ReceiptValidator.validate(file);
 
         Category category = resolveCategory(categoryId);
 
