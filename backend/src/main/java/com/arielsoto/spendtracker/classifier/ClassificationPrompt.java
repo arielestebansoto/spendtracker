@@ -4,31 +4,22 @@ public class ClassificationPrompt {
 
     public static String buildPrompt(String ocrText) {
         return """
-            Analyze this receipt text and extract the following information:
-
-            1. Total amount (number)
-            2. Category (one of: Comida, Transporte, Servicios, Salud, Streaming, Trabajo, Hogar, Otros)
-            3. Description (brief summary of what was purchased)
-            4. Date (if visible, in YYYY-MM-DD format)
-            5. Items (list of individual items with name and amount)
+            You are a receipt classifier. Extract structured data from the receipt text below.
 
             Receipt text:
             """ + ocrText + """
 
-            Return JSON in this exact format:
-            {
-              "amount": 42.50,
-              "category": "Comida",
-              "description": "Lunch at Restaurant XYZ",
-              "date": "2026-08-29",
-              "items": [
-                {"description": "Burger", "amount": 15.00},
-                {"description": "Fries", "amount": 8.50},
-                {"description": "Drink", "amount": 5.00}
-              ]
-            }
+            Return ONLY a JSON object with these fields:
+            - amount (number): total amount spent
+            - category (string): one of Comida, Transporte, Servicios, Salud, Streaming, Trabajo, Hogar, Otros
+            - description (string): brief summary of what was purchased
+            - date (string|null): date in YYYY-MM-DD format, or null if not visible
+            - items (array): list of objects with "description" (string) and "amount" (number)
 
-            If you cannot determine a field, use null.
+            Example:
+            {"amount":42.50,"category":"Comida","description":"Lunch at Restaurant XYZ","date":"2026-08-29","items":[{"description":"Burger","amount":15.00}]}
+
+            IMPORTANT: Return ONLY the raw JSON object. No explanation, no markdown, no code blocks, no preamble. Start your response with { and end with }.
             """;
     }
 }

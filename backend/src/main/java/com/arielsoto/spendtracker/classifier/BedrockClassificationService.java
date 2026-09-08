@@ -36,7 +36,13 @@ public class BedrockClassificationService {
         try {
             String prompt = ClassificationPrompt.buildPrompt(ocrText);
 
-            String requestBody = objectMapper.writeValueAsString(new BedrockRequest(prompt));
+            BedrockRequest novaRequest = new BedrockRequest(
+                List.of(new BedrockRequest.Message("user",
+                    List.of(new BedrockRequest.ContentBlock(prompt)))),
+                new BedrockRequest.InferenceConfig(2048, 0.0)
+            );
+
+            String requestBody = objectMapper.writeValueAsString(novaRequest);
 
             InvokeModelRequest request = InvokeModelRequest.builder()
                 .modelId(properties.modelId())
@@ -58,11 +64,14 @@ public class BedrockClassificationService {
     private ClassifiedSpend parseResponse(String responseText) {
         try {
             JsonNode root = objectMapper.readTree(responseText);
-            JsonNode results = root.get("results");
+            JsonNode output = root.get("output");
 
-            if (results != null && results.isArray() && results.size() > 0) {
-                String text = results.get(0).get("outputText").asText();
-                return parseClassificationJson(text);
+            if (output != null && output.has("message")) {
+                JsonNode content = output.get("message").get("content");
+                if (content.isArray() && content.size() > 0) {
+                    String text = content.get(0).get("text").asText();
+                    return parseClassificationJson(text);
+                }
             }
 
             return parseClassificationJson(responseText);
@@ -74,7 +83,18 @@ public class BedrockClassificationService {
 
     private ClassifiedSpend parseClassificationJson(String json) {
         try {
-            JsonNode root = objectMapper.readTree(json);
+            JsonNode root;
+            try {
+                root = objectMapper.readTree(json);
+            } catch (Exception e) {
+                int start = json.indexOf('{');
+                int end = json.lastIndexOf('}');
+                if (start == -1 || end == -1 || end <= start) {
+                    log.error("No JSON object found in response: {}", json);
+                    return new ClassifiedSpend(null, null, null, null, List.of());
+                }
+                root = objectMapper.readTree(json.substring(start, end + 1));
+            }
 
             BigDecimal amount = root.has("amount") && !root.get("amount").isNull()
                 ? root.get("amount").decimalValue() : null;
