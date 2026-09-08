@@ -2,7 +2,7 @@
 
 ## Goal
 
-Use AWS Bedrock with Amazon Titan Text Lite to classify OCR text into structured spend data (amount, category, description, date).
+Use AWS Bedrock with Amazon Nova Micro (`amazon.nova-micro-v1:0`) to classify OCR text into structured spend data (amount, category, description, date).
 
 ---
 
@@ -103,134 +103,15 @@ public record ClassifiedSpend(
 
 ### 4.5 Create BedrockClassificationService
 
-**File**: `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockClassificationService.java` (new)
+**File**: `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockClassificationService.java`
 
-```java
-package com.arielsoto.spendtracker.classifier;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.SdkBytes;
-import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
-import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest;
-import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-
-@Service
-@EnableConfigurationProperties(BedrockProperties.class)
-public class BedrockClassificationService {
-
-    private static final Logger log = LoggerFactory.getLogger(BedrockClassificationService.class);
-
-    private final BedrockRuntimeClient bedrockClient;
-    private final BedrockProperties properties;
-    private final ObjectMapper objectMapper;
-
-    public BedrockClassificationService(BedrockProperties properties) {
-        this.properties = properties;
-        this.bedrockClient = BedrockRuntimeClient.create();
-        this.objectMapper = new ObjectMapper();
-    }
-
-    public ClassifiedSpend classify(String ocrText) {
-        try {
-            String prompt = ClassificationPrompt.buildPrompt(ocrText);
-
-            String requestBody = objectMapper.writeValueAsString(new BedrockRequest(prompt));
-
-            InvokeModelRequest request = InvokeModelRequest.builder()
-                .modelId(properties.modelId())
-                .contentType("application/json")
-                .accept("application/json")
-                .body(SdkBytes.fromUtf8String(requestBody))
-                .build();
-
-            InvokeModelResponse response = bedrockClient.invokeModel(request);
-            String responseText = response.body().asUtf8String();
-
-            return parseResponse(responseText);
-        } catch (Exception e) {
-            log.error("Bedrock classification failed", e);
-            return new ClassifiedSpend(null, null, null, null, List.of());
-        }
-    }
-
-    private ClassifiedSpend parseResponse(String responseText) {
-        try {
-            JsonNode root = objectMapper.readTree(responseText);
-            JsonNode results = root.get("results");
-
-            if (results != null && results.isArray() && results.size() > 0) {
-                String text = results.get(0).get("outputText").asText();
-                return parseClassificationJson(text);
-            }
-
-            // Fallback: try parsing entire response as JSON
-            return parseClassificationJson(responseText);
-        } catch (Exception e) {
-            log.error("Failed to parse Bedrock response", e);
-            return new ClassifiedSpend(null, null, null, null, List.of());
-        }
-    }
-
-    private ClassifiedSpend parseClassificationJson(String json) {
-        try {
-            JsonNode root = objectMapper.readTree(json);
-
-            BigDecimal amount = root.has("amount") && !root.get("amount").isNull()
-                ? root.get("amount").decimalValue() : null;
-
-            String category = root.has("category") && !root.get("category").isNull()
-                ? root.get("category").asText() : null;
-
-            String description = root.has("description") && !root.get("description").isNull()
-                ? root.get("description").asText() : null;
-
-            LocalDate date = root.has("date") && !root.get("date").isNull()
-                ? LocalDate.parse(root.get("date").asText()) : null;
-
-            List<ClassifiedSpend.ClassifiedItem> items = new ArrayList<>();
-            if (root.has("items") && root.get("items").isArray()) {
-                for (JsonNode itemNode : root.get("items")) {
-                    items.add(new ClassifiedSpend.ClassifiedItem(
-                        itemNode.get("description").asText(),
-                        itemNode.get("amount").decimalValue()
-                    ));
-                }
-            }
-
-            return new ClassifiedSpend(amount, category, description, date, items);
-        } catch (Exception e) {
-            log.error("Failed to parse classification JSON", e);
-            return new ClassifiedSpend(null, null, null, null, List.of());
-        }
-    }
-
-    private record BedrockRequest(String inputText) {}
-}
-```
+Uses Nova Micro message format for requests and parses Nova's response structure.
 
 ### 4.6 Create Request Record
 
-**File**: `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockRequest.java` (new)
+**File**: `backend/src/main/java/com/arielsoto/spendtracker/classifier/BedrockRequest.java`
 
-```java
-package com.arielsoto.spendtracker.classifier;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
-
-public record BedrockRequest(
-    @JsonProperty("inputText") String inputText
-) {}
-```
+Nova Micro message-based request format with `messages` and `inferenceConfig`.
 
 ### 4.7 Update Application Configuration
 
@@ -241,7 +122,7 @@ Add Bedrock config:
 ```yaml
 app:
   bedrock:
-    model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
+    model-id: ${BEDROCK_MODEL_ID:amazon.nova-micro-v1:0}
 ```
 
 ### 4.8 Update Docker Compose
@@ -253,7 +134,7 @@ Add to backend environment:
 ```yaml
 environment:
   # ... existing env vars
-  BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.titan-text-lite-v1}
+  BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-micro-v1:0}
 ```
 
 ---
@@ -280,3 +161,33 @@ environment:
 - Remove `classifier` package
 - Remove `bedrockruntime` from `build.gradle`
 - Remove `BEDROCK_MODEL_ID` from `docker-compose.yml`
+
+---
+
+## Changelog
+
+### 2026-09-08: Migrated from Titan Text Lite to Nova Micro
+
+**Model changed**: `amazon.titan-text-lite-v1` → `amazon.nova-micro-v1:0`
+
+**Files modified**:
+- `BedrockRequest.java` — Replaced Titan's `{"inputText":"..."}` with Nova Micro's message format: `{"messages":[{"role":"user","content":[{"text":"..."}]}],"inferenceConfig":{"maxTokens":2048,"temperature":0}}`
+- `BedrockClassificationService.java` — Updated `classify()` to build Nova request structure. Updated `parseResponse()` to extract text from `output.message.content[0].text` instead of `results[0].outputText`.
+- `application.yml` — Default model ID updated to `amazon.nova-micro-v1:0`
+- `docker-compose.yml` — Already defaults to `amazon.nova-micro-v1:0`
+
+**API format differences**:
+| Aspect | Titan Text Lite | Nova Micro |
+|---|---|---|
+| Request | `{"inputText": "..."}` | `{"messages": [...], "inferenceConfig": {...}}` |
+| Response | `{"results": [{"outputText": "..."}]}` | `{"output": {"message": {"content": [{"text": "..."}]}}}` |
+
+**No changes needed**: `BedrockProperties.java`, `ClassifiedSpend.java`, `build.gradle`
+
+### 2026-09-08: Fix Nova Micro returning prose instead of JSON
+
+**Problem**: Nova Micro wraps JSON output in conversational text (e.g., "Here is the extracted data: {...}"), causing `JsonParseException`.
+
+**Files modified**:
+- `ClassificationPrompt.java` — Strengthened prompt: added explicit "Return ONLY the raw JSON object" instruction, example with compact JSON, and "start with `{` end with `}`" constraint
+- `BedrockClassificationService.java` — Added JSON extraction fallback in `parseClassificationJson()`: if direct parse fails, extracts substring between first `{` and last `}` before retrying
