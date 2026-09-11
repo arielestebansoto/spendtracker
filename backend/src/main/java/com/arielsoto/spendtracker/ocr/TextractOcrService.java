@@ -23,21 +23,16 @@ public class TextractOcrService {
     }
 
     public OcrResult extractText(byte[] imageBytes, String contentType) {
-        try {
-            SdkBytes imageBytesSdk = SdkBytes.fromByteArray(imageBytes);
+        SdkBytes imageBytesSdk = SdkBytes.fromByteArray(imageBytes);
 
-            DetectDocumentTextRequest request = DetectDocumentTextRequest.builder()
-                .document(Document.builder()
-                    .bytes(imageBytesSdk)
-                    .build())
-                .build();
+        DetectDocumentTextRequest request = DetectDocumentTextRequest.builder()
+            .document(Document.builder()
+                .bytes(imageBytesSdk)
+                .build())
+            .build();
 
-            DetectDocumentTextResponse response = textractClient.detectDocumentText(request);
-            return parseResponse(response);
-        } catch (Exception e) {
-            log.error("Textract OCR extraction failed", e);
-            return new OcrResult("", 0f, List.of());
-        }
+        DetectDocumentTextResponse response = textractClient.detectDocumentText(request);
+        return parseResponse(response);
     }
 
     private OcrResult parseResponse(DetectDocumentTextResponse response) {

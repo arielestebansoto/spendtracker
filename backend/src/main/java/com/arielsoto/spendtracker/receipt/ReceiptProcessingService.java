@@ -64,10 +64,11 @@ public class ReceiptProcessingService {
             .build();
         spend = spendRepository.save(spend);
 
-        // Step 1: Store file in S3
-        StoredFile storedFile;
-        long storageStart = System.currentTimeMillis();
+        StoredFile storedFile = null;
+
         try {
+            // Step 1: Store file in S3
+            long storageStart = System.currentTimeMillis();
             storedFile = storageService.store(user, spend.getId(), file);
             spend.setReceiptKey(storedFile.key());
             spend.setReceiptContentType(storedFile.contentType());
@@ -79,17 +80,25 @@ public class ReceiptProcessingService {
                 storedFile.key(),
                 System.currentTimeMillis() - storageStart
             );
-        } catch (Exception e) {
-            log.error("Receipt storage failed for spendId={}", spend.getId(), e);
-            return createSpendWithoutStorage(user, spend, category);
-        }
 
-        // Step 2: Extract text with OCR
-        OcrResult ocrResult;
-        long ocrStart = System.currentTimeMillis();
-        try {
+            // Step 2: Extract text with OCR
+            long ocrStart = System.currentTimeMillis();
             byte[] imageBytes = file.getBytes();
-            ocrResult = ocrService.extractText(imageBytes, file.getContentType());
+            OcrResult ocrResult = ocrService.extractText(imageBytes, file.getContentType());
+
+            if (ocrResult.rawText() == null || ocrResult.rawText().isBlank()) {
+                throw new ReceiptProcessingException(
+                    "OCR returned empty text — check Textract permissions and image quality"
+                );
+            }
+
+            log.debug(
+                "receipt_ocr_raw_text userId={} spendId={} confidence={}\n{}",
+                user.getId(),
+                spend.getId(),
+                ocrResult.confidence(),
+                ocrResult.rawText()
+            );
             log.info(
                 "receipt_ocr_success userId={} spendId={} s3Key={} durationMs={}",
                 user.getId(),
@@ -97,16 +106,17 @@ public class ReceiptProcessingService {
                 storedFile.key(),
                 System.currentTimeMillis() - ocrStart
             );
-        } catch (Exception e) {
-            log.error("Receipt OCR failed for s3Key={}", storedFile.key(), e);
-            return createSpendWithStorageOnly(user, spend, category, storedFile);
-        }
 
-        // Step 3: Classify with Bedrock
-        ClassifiedSpend classified;
-        long classifyStart = System.currentTimeMillis();
-        try {
-            classified = classifierService.classify(ocrResult.rawText());
+            // Step 3: Classify with Bedrock
+            long classifyStart = System.currentTimeMillis();
+            ClassifiedSpend classified = classifierService.classify(ocrResult.rawText());
+
+            if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
+                throw new ReceiptProcessingException(
+                    "Classification returned no amount — model could not extract data from receipt"
+                );
+            }
+
             log.info(
                 "receipt_classification_success userId={} spendId={} s3Key={} category={} totalAmount={} durationMs={}",
                 user.getId(),
@@ -116,34 +126,43 @@ public class ReceiptProcessingService {
                 classified.amount(),
                 System.currentTimeMillis() - classifyStart
             );
+
+            // Step 4: Save full spend
+            SpendProcessingResult result = saveClassifiedSpend(
+                user, spend, category, ocrResult, classified
+            );
+
+            log.info(
+                "receipt_processing_complete userId={} spendId={} status={} totalMs={}",
+                user.getId(),
+                result.spend().getId(),
+                result.status(),
+                System.currentTimeMillis() - startTime
+            );
+
+            return result;
+
+        } catch (ReceiptProcessingException e) {
+            log.error("receipt_processing_failed userId={} spendId={} reason={}",
+                user.getId(), spend.getId(), e.getMessage());
+            rollback(user, spend, storedFile);
+            throw e;
         } catch (Exception e) {
-            log.error("Receipt classification failed for s3Key={}", storedFile.key(), e);
-            return createSpendWithOcrOnly(user, spend, category, ocrResult, storedFile);
+            log.error("receipt_processing_failed userId={} spendId={}",
+                user.getId(), spend.getId(), e);
+            rollback(user, spend, storedFile);
+            throw new ReceiptProcessingException(
+                "We cannot process this receipt right now. Please try again later.", e
+            );
         }
-
-        // Step 4: Create spend with full data
-        SpendProcessingResult result = createSpendWithClassification(
-            user, spend, category, ocrResult, classified, storedFile
-        );
-
-        log.info(
-            "receipt_processing_complete userId={} spendId={} status={} totalMs={}",
-            user.getId(),
-            result.spend().getId(),
-            result.status(),
-            System.currentTimeMillis() - startTime
-        );
-
-        return result;
     }
 
-    private SpendProcessingResult createSpendWithClassification(
+    private SpendProcessingResult saveClassifiedSpend(
         UserApp user,
         Spend spend,
         Category category,
         OcrResult ocrResult,
-        ClassifiedSpend classified,
-        StoredFile storedFile
+        ClassifiedSpend classified
     ) {
         Category resolvedCategory = category;
         if (classified.category() != null) {
@@ -153,9 +172,7 @@ public class ReceiptProcessingService {
         }
 
         spend.setCategory(resolvedCategory);
-        spend.setAmount(
-            classified.amount() != null ? classified.amount() : BigDecimal.ZERO
-        );
+        spend.setAmount(classified.amount());
         spend.setSpendDate(
             classified.date() != null ? classified.date() : LocalDate.now()
         );
@@ -198,88 +215,25 @@ public class ReceiptProcessingService {
         );
     }
 
-    private SpendProcessingResult createSpendWithOcrOnly(
-        UserApp user,
-        Spend spend,
-        Category category,
-        OcrResult ocrResult,
-        StoredFile storedFile
-    ) {
-        log.info(
-            "receipt_fallback_ocr_only userId={} spendId={} s3Key={}",
-            user.getId(),
-            spend.getId(),
-            storedFile.key()
-        );
+    private void rollback(UserApp user, Spend spend, StoredFile storedFile) {
+        try {
+            if (storedFile != null) {
+                storageService.deleteFile(storedFile.key());
+                log.info("rollback_s3_delete spendId={} s3Key={}", spend.getId(), storedFile.key());
+            }
+        } catch (Exception e) {
+            log.warn("rollback_s3_delete_failed spendId={} s3Key={}", spend.getId(),
+                storedFile != null ? storedFile.key() : null, e);
+        }
 
-        String description = ocrResult.rawText() != null && !ocrResult.rawText().isBlank()
-            ? ocrResult.rawText().substring(0, Math.min(200, ocrResult.rawText().length()))
-            : "Receipt (OCR text unavailable)";
-
-        spend.setDescription(description);
-        spend = spendRepository.save(spend);
-
-        ReceiptMetadata metadata = ReceiptMetadata.builder()
-            .spend(spend)
-            .rawOcrText(ocrResult.rawText())
-            .ocrConfidence(ocrResult.confidence())
-            .processingStatus(SpendProcessingResult.ProcessingStatus.CLASSIFICATION_FAILED.name())
-            .createdAt(LocalDateTime.now())
-            .build();
-        receiptMetadataRepository.save(metadata);
-
-        return new SpendProcessingResult(
-            spend,
-            List.of(),
-            SpendProcessingResult.ProcessingStatus.CLASSIFICATION_FAILED,
-            "Classification failed"
-        );
-    }
-
-    private SpendProcessingResult createSpendWithStorageOnly(
-        UserApp user,
-        Spend spend,
-        Category category,
-        StoredFile storedFile
-    ) {
-        log.info(
-            "receipt_fallback_no_ocr userId={} spendId={} s3Key={}",
-            user.getId(),
-            spend.getId(),
-            storedFile.key()
-        );
-
-        spend.setDescription("Receipt (could not extract text)");
-        spend = spendRepository.save(spend);
-
-        return new SpendProcessingResult(
-            spend,
-            List.of(),
-            SpendProcessingResult.ProcessingStatus.OCR_FAILED,
-            "OCR failed"
-        );
-    }
-
-    private SpendProcessingResult createSpendWithoutStorage(
-        UserApp user,
-        Spend spend,
-        Category category
-    ) {
-        log.info(
-            "receipt_fallback_no_storage userId={} spendId={}",
-            user.getId(),
-            spend.getId()
-        );
-
-        spend.setDescription("Receipt (upload failed)");
-        spend = spendRepository.save(spend);
-
-        return new SpendProcessingResult(
-            spend,
-            List.of(),
-            SpendProcessingResult.ProcessingStatus.OCR_FAILED,
-            "Storage failed"
-        );
+        try {
+            spendItemRepository.deleteBySpendId(spend.getId());
+            receiptMetadataRepository.deleteBySpendId(spend.getId());
+            spendRepository.deleteById(spend.getId());
+            log.info("rollback_db_delete spendId={}", spend.getId());
+        } catch (Exception e) {
+            log.warn("rollback_db_delete_failed spendId={}", spend.getId(), e);
+        }
     }
 
     private Category resolveCategory(UUID categoryId) {
