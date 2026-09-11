@@ -31,7 +31,7 @@ public class ReceiptController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ReceiptUploadResponse upload(
-        @PathVariable UUID spendId,
+        @PathVariable("spendId") UUID spendId,
         @RequestParam("receipt") MultipartFile file,
         OAuth2AuthenticationToken authentication
     ) {
@@ -47,7 +47,7 @@ public class ReceiptController {
 
     @GetMapping
     public ResponseEntity<Resource> getReceipt(
-        @PathVariable UUID spendId,
+        @PathVariable("spendId") UUID spendId,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
@@ -78,7 +78,7 @@ public class ReceiptController {
 
     @DeleteMapping
     public ResponseEntity<Void> deleteReceipt(
-        @PathVariable UUID spendId,
+        @PathVariable("spendId") UUID spendId,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
