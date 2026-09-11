@@ -10,11 +10,13 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -22,7 +24,10 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 @Service
 @ConditionalOnBean(S3Client.class)
+@Slf4j
 public class S3StorageService implements FileStorageService {
+
+    private static final int DELETE_BATCH_SIZE = 1000;
 
     private final S3Client s3Client;
     private final String bucketName;
@@ -133,16 +138,49 @@ public class S3StorageService implements FileStorageService {
 
         } while (continuationToken != null);
 
-        if (!objectsToDelete.isEmpty()) {
-            s3Client.deleteObjects(
+        log.info(
+            "s3_delete_directory prefix={} totalObjects={}",
+            prefix,
+            objectsToDelete.size()
+        );
+
+        for (int i = 0; i < objectsToDelete.size(); i += DELETE_BATCH_SIZE) {
+            List<ObjectIdentifier> batch = objectsToDelete.subList(
+                i,
+                Math.min(i + DELETE_BATCH_SIZE, objectsToDelete.size())
+            );
+
+            DeleteObjectsResponse response = s3Client.deleteObjects(
                 DeleteObjectsRequest.builder()
                     .bucket(bucketName)
                     .delete(
                         Delete.builder()
-                            .objects(objectsToDelete)
+                            .objects(batch)
                             .build()
                     )
                     .build()
+            );
+
+            if (response.errors() != null && !response.errors().isEmpty()) {
+                List<String> errorMessages = response.errors().stream()
+                    .map(e -> e.key() + ": " + e.message())
+                    .toList();
+                log.error(
+                    "s3_delete_objects_errors prefix={} batchStart={} errorCount={} errors={}",
+                    prefix,
+                    i,
+                    response.errors().size(),
+                    errorMessages
+                );
+                throw new RuntimeException(
+                    "Failed to delete " + response.errors().size() + " objects from S3 under " + prefix
+                );
+            }
+
+            log.info(
+                "s3_delete_objects_batch prefix={} deleted={}",
+                prefix,
+                batch.size()
             );
         }
     }
