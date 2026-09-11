@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -14,6 +15,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Service
@@ -25,16 +27,26 @@ public class BedrockClassificationService {
     private final BedrockRuntimeClient bedrockClient;
     private final BedrockProperties properties;
     private final ObjectMapper objectMapper;
+    private final Environment environment;
 
-    public BedrockClassificationService(BedrockProperties properties) {
+    public BedrockClassificationService(BedrockProperties properties, Environment environment) {
         this.properties = properties;
+        this.environment = environment;
         this.bedrockClient = BedrockRuntimeClient.create();
         this.objectMapper = new ObjectMapper();
+    }
+
+    private boolean isDev() {
+        return Arrays.asList(environment.getActiveProfiles()).contains("dev");
     }
 
     public ClassifiedSpend classify(String ocrText) {
         try {
             String prompt = ClassificationPrompt.buildPrompt(ocrText);
+
+            if (isDev()) {
+                log.debug("bedrock_request_prompt modelId={}\n{}", properties.modelId(), prompt);
+            }
 
             BedrockRequest novaRequest = new BedrockRequest(
                 List.of(new BedrockRequest.Message("user",
@@ -54,7 +66,18 @@ public class BedrockClassificationService {
             InvokeModelResponse response = bedrockClient.invokeModel(request);
             String responseText = response.body().asUtf8String();
 
-            return parseResponse(responseText);
+            if (isDev()) {
+                log.debug("bedrock_response_raw\n{}", responseText);
+            }
+
+            ClassifiedSpend result = parseResponse(responseText);
+
+            if (isDev()) {
+                log.debug("bedrock_parsed_result amount={} category={} description={} date={} items={}",
+                    result.amount(), result.category(), result.description(), result.date(), result.items());
+            }
+
+            return result;
         } catch (Exception e) {
             log.error("Bedrock classification failed", e);
             return new ClassifiedSpend(null, null, null, null, List.of());
