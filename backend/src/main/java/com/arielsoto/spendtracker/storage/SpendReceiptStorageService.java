@@ -10,8 +10,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.user.UserApp;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Service
 @ConditionalOnBean(FileStorageService.class)
+@Slf4j
 public class SpendReceiptStorageService {
 
     private final FileStorageService fileStorageService;
@@ -69,8 +72,12 @@ public class SpendReceiptStorageService {
     }
 
     public void deleteAllReceiptsByUser(UserApp user) {
-        fileStorageService.deleteDirectory(
-            "spends/" + user.getId()
+        String prefix = "spends/" + user.getId();
+        log.info(
+            "delete_all_receipts_by_user userId={} prefix={}",
+            user.getId(),
+            prefix
         );
+        fileStorageService.deleteDirectory(prefix);
     }
 }
