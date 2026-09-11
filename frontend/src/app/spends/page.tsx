@@ -382,7 +382,8 @@ export default function SpendsPage() {
             {spends.map((spend) => (
               <div
                 key={spend.id}
-                className="flex items-center justify-between px-4 py-3 rounded-lg border border-border hover:bg-accent transition"
+                onClick={() => router.push(`/spends/${spend.id}`)}
+                className="flex items-center justify-between px-4 py-3 rounded-lg border border-border hover:bg-accent transition cursor-pointer"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3">
@@ -400,13 +401,13 @@ export default function SpendsPage() {
                   <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
                   <div className="flex gap-1">
                     <button
-                      onClick={() => router.push(`/spends/${spend.id}/edit`)}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/spends/${spend.id}/edit`); }}
                       className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition"
                     >
                       Edit
                     </button>
                     <button
-                      onClick={() => setDeleteTarget(spend)}
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(spend); }}
                       className="px-2.5 py-1 rounded text-xs border border-border text-destructive hover:bg-destructive hover:text-destructive-foreground transition"
                     >
                       Delete
