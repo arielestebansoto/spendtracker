@@ -4,3 +4,5 @@ logs/
 .env
 
 infra/nginx/dev/certs/
+
+.opencode/opencode.json
