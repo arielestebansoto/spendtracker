@@ -40,11 +40,13 @@ export default function ViewSpendPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptContentType, setReceiptContentType] = useState<string | null>(null);
 
   const fetchReceipt = useCallback(async (url: string) => {
     try {
       const response = await apiFetch(url);
       if (!response.ok) throw new Error("Failed to load receipt");
+      setReceiptContentType(response.headers.get("content-type"));
       const blob = await response.blob();
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -125,11 +127,27 @@ export default function ViewSpendPage() {
         {spend.receiptUrl ? (
           <div className="rounded-xl border border-border overflow-hidden bg-muted">
             {receiptDataUrl ? (
-              <img
-                src={receiptDataUrl}
-                alt="Receipt"
-                className="w-full h-auto"
-              />
+              receiptContentType?.startsWith("image/") ? (
+                <img
+                  src={receiptDataUrl}
+                  alt="Receipt"
+                  className="w-full h-auto"
+                />
+              ) : receiptContentType === "application/pdf" ? (
+                <iframe
+                  src={receiptDataUrl}
+                  title="Receipt"
+                  className="w-full h-[600px]"
+                />
+              ) : (
+                <a
+                  href={receiptDataUrl}
+                  download="receipt"
+                  className="block p-8 text-center text-sm text-primary underline"
+                >
+                  Download receipt
+                </a>
+              )
             ) : (
               <div className="w-full h-48 flex items-center justify-center">
                 <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />

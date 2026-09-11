@@ -3,7 +3,6 @@ package com.arielsoto.spendtracker.receipt;
 import java.util.UUID;
 
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
@@ -68,10 +67,6 @@ public class ReceiptController {
                         ? contentType
                         : MediaType.APPLICATION_OCTET_STREAM_VALUE
                 )
-            )
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "attachment"
             )
             .body(resource);
     }
