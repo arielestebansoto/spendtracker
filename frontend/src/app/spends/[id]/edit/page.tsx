@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
@@ -33,8 +33,29 @@ export default function EditSpendPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptContentType, setReceiptContentType] = useState<string | null>(null);
 
   const isCategoryDisabled = useMemo(() => categories.length === 0, [categories.length]);
+
+  const fetchReceipt = useCallback(async (url: string) => {
+    try {
+      const response = await apiFetch(url);
+      if (!response.ok) throw new Error("Failed to load receipt");
+      setReceiptContentType(response.headers.get("content-type"));
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      setReceiptDataUrl(dataUrl);
+    } catch {
+      setReceiptDataUrl(null);
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -54,6 +75,10 @@ export default function EditSpendPage() {
           amount: String(spend.amount),
           spendDate: spend.spendDate,
         });
+        if (spend.receiptUrl) {
+          setReceiptUrl(spend.receiptUrl);
+          fetchReceipt(spend.receiptUrl);
+        }
       } catch {
         setError(true);
       } finally {
@@ -61,7 +86,7 @@ export default function EditSpendPage() {
       }
     }
     if (user) load();
-  }, [user, spendId]);
+  }, [user, spendId, fetchReceipt]);
 
   function updateField(field: keyof FormState, value: string) {
     setForm((current) => (current ? { ...current, [field]: value } : current));
@@ -228,6 +253,45 @@ export default function EditSpendPage() {
           </button>
         </div>
       </form>
+
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold mb-3">Receipt</h2>
+        {receiptUrl ? (
+          <div className="rounded-xl border border-border overflow-hidden bg-muted">
+            {receiptDataUrl ? (
+              receiptContentType?.startsWith("image/") ? (
+                <img
+                  src={receiptDataUrl}
+                  alt="Receipt"
+                  className="w-full h-auto"
+                />
+              ) : receiptContentType === "application/pdf" ? (
+                <iframe
+                  src={receiptDataUrl}
+                  title="Receipt"
+                  className="w-full h-[600px]"
+                />
+              ) : (
+                <a
+                  href={receiptDataUrl}
+                  download="receipt"
+                  className="block p-8 text-center text-sm text-primary underline"
+                >
+                  Download receipt
+                </a>
+              )
+            ) : (
+              <div className="w-full h-48 flex items-center justify-center">
+                <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center">
+            <p className="text-sm text-muted-foreground">No receipt uploaded</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

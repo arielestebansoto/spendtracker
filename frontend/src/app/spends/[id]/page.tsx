@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
@@ -14,6 +14,7 @@ type SpendDetail = {
   description: string;
   amount: number;
   spendDate: string;
+  receiptUrl: string | null;
 };
 
 function formatCurrency(amount: number) {
@@ -38,13 +39,35 @@ export default function ViewSpendPage() {
   const [spend, setSpend] = useState<SpendDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptContentType, setReceiptContentType] = useState<string | null>(null);
+
+  const fetchReceipt = useCallback(async (url: string) => {
+    try {
+      const response = await apiFetch(url);
+      if (!response.ok) throw new Error("Failed to load receipt");
+      setReceiptContentType(response.headers.get("content-type"));
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      setReceiptDataUrl(dataUrl);
+    } catch {
+      setReceiptDataUrl(null);
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
       try {
         const response = await apiFetch(`/api/v1/spends/${spendId}`);
         if (!response.ok) throw new Error("Not found");
-        setSpend(await response.json());
+        const data: SpendDetail = await response.json();
+        setSpend(data);
+        if (data.receiptUrl) fetchReceipt(data.receiptUrl);
       } catch {
         setError(true);
       } finally {
@@ -52,7 +75,7 @@ export default function ViewSpendPage() {
       }
     }
     if (user) load();
-  }, [user, spendId]);
+  }, [user, spendId, fetchReceipt]);
 
   if (authLoading || !user) return <LoadingState />;
   if (error) return <ErrorState message="Could not load spend." onRetry={() => router.refresh()} />;
@@ -95,6 +118,45 @@ export default function ViewSpendPage() {
           <div>
             <p className="text-sm text-muted-foreground">Description</p>
             <p className="text-sm font-medium mt-1">{spend.description}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold mb-3">Receipt</h2>
+        {spend.receiptUrl ? (
+          <div className="rounded-xl border border-border overflow-hidden bg-muted">
+            {receiptDataUrl ? (
+              receiptContentType?.startsWith("image/") ? (
+                <img
+                  src={receiptDataUrl}
+                  alt="Receipt"
+                  className="w-full h-auto"
+                />
+              ) : receiptContentType === "application/pdf" ? (
+                <iframe
+                  src={receiptDataUrl}
+                  title="Receipt"
+                  className="w-full h-[600px]"
+                />
+              ) : (
+                <a
+                  href={receiptDataUrl}
+                  download="receipt"
+                  className="block p-8 text-center text-sm text-primary underline"
+                >
+                  Download receipt
+                </a>
+              )
+            ) : (
+              <div className="w-full h-48 flex items-center justify-center">
+                <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center">
+            <p className="text-sm text-muted-foreground">No receipt uploaded</p>
           </div>
         )}
       </div>

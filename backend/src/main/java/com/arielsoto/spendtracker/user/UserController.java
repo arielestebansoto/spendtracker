@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.SpendService;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -21,15 +22,18 @@ import jakarta.validation.Valid;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/v1/user")
 @RequiredArgsConstructor
+@Slf4j
 public class UserController {
     
     private final AuthenticatedUserService authenticatedUserService;
     private final UserAppRepository userRepository;
     private final SpendService spendService;
+    private final SpendReceiptStorageService spendReceiptStorageService;
 
     @GetMapping("/me")
     public UserMeResponse me(
@@ -92,9 +96,17 @@ public class UserController {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
 
+        log.info("delete_account_start userId={}", user.getId());
+
+        spendReceiptStorageService.deleteAllReceiptsByUser(user);
+
+        log.info("delete_account_s3_done userId={}", user.getId());
+
         spendService.deleteAllByUser(user);
 
         userRepository.delete(user);
+
+        log.info("delete_account_db_done userId={}", user.getId());
 
         var session = request.getSession(false);
         if (session != null) {

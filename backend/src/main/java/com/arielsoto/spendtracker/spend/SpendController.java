@@ -3,6 +3,7 @@ package com.arielsoto.spendtracker.spend;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,7 +24,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import com.arielsoto.spendtracker.receipt.ReceiptProcessingException;
+import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
+import com.arielsoto.spendtracker.receipt.SpendProcessingResult;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
@@ -34,7 +40,9 @@ import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/spends")
 @RequiredArgsConstructor
@@ -42,6 +50,7 @@ public class SpendController {
     
     private final SpendService spendService;
     private final AuthenticatedUserService authenticatedUserService;
+    private final ReceiptProcessingService receiptProcessingService;
 
     @GetMapping("/summary")
     public DashboardSummaryResponse getSummary(
@@ -144,5 +153,45 @@ public class SpendController {
             id,
             user.getId()
         );
+    }
+
+    @PostMapping(value = "/from-receipt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> createFromReceipt(
+        @RequestParam("receipt") MultipartFile file,
+        @RequestParam(value = "categoryId", required = false) UUID categoryId,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        log.info(
+            "api_create_spend_from_receipt userId={} fileName={} fileSize={}",
+            user.getId(),
+            file.getOriginalFilename(),
+            file.getSize()
+        );
+
+        try {
+            SpendProcessingResult result = receiptProcessingService.processReceipt(
+                user, file, categoryId
+            );
+
+            return ResponseEntity.ok(new CreateSpendResponse(
+                result.spend().getId(),
+                result.spend().getCategory().getId(),
+                result.spend().getCategory().getName(),
+                result.spend().getDescription(),
+                result.spend().getAmount(),
+                result.spend().getSpendDate()
+            ));
+        } catch (ReceiptProcessingException e) {
+            log.error("api_create_spend_from_receipt_failed userId={} reason={}",
+                user.getId(), e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                    "error", "We cannot process this receipt right now. Please try again later.",
+                    "details", e.getMessage()
+                ));
+        }
     }
 }

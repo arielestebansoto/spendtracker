@@ -12,5 +12,7 @@ public interface FileStorageService {
 
     Resource load(String key);
 
+    void deleteFile(String key);
+
     void deleteDirectory(String directory);
 }
