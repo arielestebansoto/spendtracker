@@ -40,7 +40,7 @@ public class BedrockClassificationService {
         return Arrays.asList(environment.getActiveProfiles()).contains("dev");
     }
 
-    public ClassifiedSpend classify(String ocrText) {
+    public ClassifiedSpendResult classify(String ocrText) {
         try {
             String prompt = ClassificationPrompt.buildPrompt(ocrText);
 
@@ -70,37 +70,48 @@ public class BedrockClassificationService {
                 log.debug("bedrock_response_raw\n{}", responseText);
             }
 
-            ClassifiedSpend result = parseResponse(responseText);
+            ClassifiedSpendResult result = parseResponse(responseText);
+            ClassifiedSpend classified = result.classified();
 
             if (isDev()) {
-                log.debug("bedrock_parsed_result amount={} category={} description={} date={} items={}",
-                    result.amount(), result.category(), result.description(), result.date(), result.items());
+                log.debug("bedrock_parsed_result amount={} category={} description={} date={} items={} inputTokens={} outputTokens={}",
+                    classified.amount(), classified.category(), classified.description(), classified.date(), classified.items(),
+                    result.inputTokens(), result.outputTokens());
             }
 
             return result;
         } catch (Exception e) {
             log.error("Bedrock classification failed", e);
-            return new ClassifiedSpend(null, null, null, null, List.of());
+            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0);
         }
     }
 
-    private ClassifiedSpend parseResponse(String responseText) {
+    private ClassifiedSpendResult parseResponse(String responseText) {
         try {
             JsonNode root = objectMapper.readTree(responseText);
+
+            long inputTokens = 0;
+            long outputTokens = 0;
+            if (root.has("usage")) {
+                JsonNode usage = root.get("usage");
+                inputTokens = usage.has("inputTokens") ? usage.get("inputTokens").asLong() : 0;
+                outputTokens = usage.has("outputTokens") ? usage.get("outputTokens").asLong() : 0;
+            }
+
             JsonNode output = root.get("output");
 
             if (output != null && output.has("message")) {
                 JsonNode content = output.get("message").get("content");
-                if (content.isArray() && content.size() > 0) {
+                if (content.isArray() && !content.isEmpty()) {
                     String text = content.get(0).get("text").asText();
-                    return parseClassificationJson(text);
+                    return new ClassifiedSpendResult(parseClassificationJson(text), inputTokens, outputTokens);
                 }
             }
 
-            return parseClassificationJson(responseText);
+            return new ClassifiedSpendResult(parseClassificationJson(responseText), inputTokens, outputTokens);
         } catch (Exception e) {
             log.error("Failed to parse Bedrock response", e);
-            return new ClassifiedSpend(null, null, null, null, List.of());
+            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0);
         }
     }
 

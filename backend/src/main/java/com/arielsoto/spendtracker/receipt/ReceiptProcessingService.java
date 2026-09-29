@@ -109,7 +109,7 @@ public class ReceiptProcessingService {
 
             // Step 3: Classify with Bedrock
             long classifyStart = System.currentTimeMillis();
-            ClassifiedSpend classified = classifierService.classify(ocrResult.rawText());
+            ClassifiedSpend classified = classifierService.classify(ocrResult.rawText()).classified();
 
             if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
                 throw new ReceiptProcessingException(
