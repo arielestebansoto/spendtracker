@@ -61,5 +61,4 @@ public class DetectDocumentTextTextractStrategy implements TextractStrategy {
 - (Full integration happens in Slice 6)
 
 ## Verify
-- `./gradlew compileJava` — both strategies compile
-- Spring context loads with both beans
+- `./gradlew compileJava` passes

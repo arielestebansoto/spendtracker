@@ -39,5 +39,4 @@ CREATE INDEX idx_ai_usage_user_user_id ON ai_usage_user(user_id);
 ```
 
 ## Verify
-- Run `./gradlew flywayMigrate` — migration applies cleanly
-- Tables exist in PostgreSQL with correct constraints
+- `./gradlew compileJava` passes

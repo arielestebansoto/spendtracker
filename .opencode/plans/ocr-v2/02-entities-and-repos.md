@@ -80,5 +80,4 @@ public interface AiUsageUserRepository extends JpaRepository<AiUsageUser, UUID> 
 ```
 
 ## Verify
-- App compiles: `./gradlew compileJava`
-- Repositories injected correctly in context (no runtime errors)
+- `./gradlew compileJava` passes

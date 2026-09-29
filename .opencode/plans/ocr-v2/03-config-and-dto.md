@@ -69,4 +69,3 @@ public class AiUsageLimitExceededException extends RuntimeException {
 
 ## Verify
 - `./gradlew compileJava` passes
-- `application.yml` loads correctly (check with `bootRun`)

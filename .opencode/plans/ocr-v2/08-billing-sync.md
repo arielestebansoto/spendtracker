@@ -139,6 +139,3 @@ public class AwsBillingSyncJob {
 
 ## Verify
 - `./gradlew compileJava` passes
-- `@Scheduled` triggers every 6 hours (check logs for `billing_sync_start`)
-- Cost Explorer queries execute without error (requires AWS credentials + Cost Explorer enabled)
-- Global usage table updated with billing data

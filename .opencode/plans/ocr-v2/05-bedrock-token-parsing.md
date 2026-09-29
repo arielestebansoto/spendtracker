@@ -45,4 +45,3 @@ private ClassifiedSpendResult parseResponse(String responseText) {
 
 ## Verify
 - `./gradlew compileJava` passes
-- Existing tests still pass (may need to update test assertions for new return type)

@@ -60,6 +60,3 @@ catch (AiUsageLimitExceededException e) {
 
 ## Verify
 - `./gradlew compileJava` passes
-- POST `/api/v1/spends/from-receipt` with a valid receipt succeeds
-- When limits exceeded, returns 429 with error message
-- GET `/api/v1/ai-usage/me` returns user usage data

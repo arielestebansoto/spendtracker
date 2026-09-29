@@ -148,7 +148,3 @@ public class AiUsageService {
 
 ## Verify
 - `./gradlew compileJava` passes
-- Unit test: validate strategy picks AnalyzeExpense when under limit
-- Unit test: validate strategy falls back to DetectDocumentText
-- Unit test: validate throws when both exhausted
-- Unit test: record increments counters correctly

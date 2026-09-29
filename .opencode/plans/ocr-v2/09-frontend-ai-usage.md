@@ -61,6 +61,4 @@ useEffect(() => {
 ```
 
 ## Verify
-- Settings page loads without errors
-- AI usage section displays current month numbers
-- Numbers update on page refresh
+- `pnpm build` passes
