@@ -5,7 +5,7 @@ import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.ocr.TextractOcrService;
+import com.arielsoto.spendtracker.ocr.TextractStrategy;
 import com.arielsoto.spendtracker.spend.*;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
@@ -30,7 +30,7 @@ public class ReceiptProcessingService {
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
-    private final TextractOcrService ocrService;
+    private final List<TextractStrategy> textractStrategies;
     private final BedrockClassificationService classifierService;
     // Storage is optional - may not be configured in dev
     private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
@@ -84,7 +84,7 @@ public class ReceiptProcessingService {
             // Step 2: Extract text with OCR
             long ocrStart = System.currentTimeMillis();
             byte[] imageBytes = file.getBytes();
-            OcrResult ocrResult = ocrService.extractText(imageBytes, file.getContentType());
+            OcrResult ocrResult = strategy().extractText(imageBytes, file.getContentType());
 
             if (ocrResult.rawText() == null || ocrResult.rawText().isBlank()) {
                 throw new ReceiptProcessingException(
@@ -213,6 +213,15 @@ public class ReceiptProcessingService {
             SpendProcessingResult.ProcessingStatus.SUCCESS,
             null
         );
+    }
+
+    private TextractStrategy strategy() {
+        return textractStrategies.stream()
+            .filter(s -> "ANALYZE_EXPENSE".equals(s.name()))
+            .findFirst()
+            .orElseThrow(() -> new ReceiptProcessingException(
+                "No OCR strategy is available"
+            ));
     }
 
     private void rollback(UserApp user, Spend spend, StoredFile storedFile) {

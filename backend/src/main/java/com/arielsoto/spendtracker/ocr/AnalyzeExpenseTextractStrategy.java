@@ -9,19 +9,24 @@ import software.amazon.awssdk.services.textract.model.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 @Service
-public class TextractOcrService {
+public class AnalyzeExpenseTextractStrategy implements TextractStrategy {
 
-    private static final Logger log = LoggerFactory.getLogger(TextractOcrService.class);
+    private static final Logger log = LoggerFactory.getLogger(AnalyzeExpenseTextractStrategy.class);
 
     private final TextractClient textractClient;
 
-    public TextractOcrService() {
+    public AnalyzeExpenseTextractStrategy() {
         this.textractClient = TextractClient.create();
     }
 
+    @Override
+    public String name() {
+        return "ANALYZE_EXPENSE";
+    }
+
+    @Override
     public OcrResult extractText(byte[] imageBytes, String contentType) {
         SdkBytes imageBytesSdk = SdkBytes.fromByteArray(imageBytes);
 
