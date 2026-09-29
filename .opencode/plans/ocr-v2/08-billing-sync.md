@@ -137,5 +137,26 @@ public class AwsBillingSyncJob {
 }
 ```
 
+## Notes
+
+This job mutates the same `ai_usage_global` row that `AiUsageService` increments on
+the request path (`validateAndPickStrategy`, `validateBedrockUsage`,
+`recordTextractUsage`, `recordBedrockUsage`). Those methods read-then-write without
+pessimistic locking, so two issues exist today and need a decision here:
+
+- **Create race:** concurrent first requests in a month can both miss the lookup and
+  then insert, hitting `uq_ai_usage_global_month` / `uq_ai_usage_user_month`
+  (`DataIntegrityViolationException` on `getOrCreate*`).
+- **Lost update:** concurrent increments read the same counter value and overwrite each
+  other, so the global counters under-count. This job's `save(usage)` can also clobber
+  a request-path increment (and vice versa) for the same reason.
+
+Options, cheapest first: upsert in `getOrCreate*` (`INSERT ... ON CONFLICT DO NOTHING`
++ re-select) to fix the create race; `@Lock(PESSIMISTIC_WRITE)` repository finders to
+serialize read-modify-write; atomic `SET x = x + n` updates instead of entity mutation.
+Note that AWS Cost Explorer values become authoritative for global counters after a
+sync, which makes the lost-update window for those counters mostly self-healing — the
+per-user counters are the ones that stay local and need real protection.
+
 ## Verify
 - `./gradlew compileJava` passes
