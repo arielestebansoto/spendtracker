@@ -78,17 +78,20 @@ public class AiUsageService {
     @Transactional
     public void recordTextractUsage(UserApp user, String strategyName) {
         LocalDate month = currentMonth();
-        AiUsageGlobal global = getOrCreateGlobalMonth(month);
-        AiUsageUser userUsage = getOrCreateUserMonth(user, month);
+
+        // Ensure the rows exist: the atomic increments below match zero rows
+        // and would silently drop the increment if the month row is missing.
+        getOrCreateGlobalMonth(month);
+        getOrCreateUserMonth(user, month);
 
         switch (strategyName) {
             case ANALYZE_EXPENSE -> {
-                global.setAnalyzeExpensePages(global.getAnalyzeExpensePages() + 1);
-                userUsage.setAnalyzeExpensePages(userUsage.getAnalyzeExpensePages() + 1);
+                globalRepository.incrementAnalyzeExpensePages(month);
+                userRepository.incrementAnalyzeExpensePages(user.getId(), month);
             }
             case DETECT_TEXT -> {
-                global.setDetectTextPages(global.getDetectTextPages() + 1);
-                userUsage.setDetectTextPages(userUsage.getDetectTextPages() + 1);
+                globalRepository.incrementDetectTextPages(month);
+                userRepository.incrementDetectTextPages(user.getId(), month);
             }
             default -> throw new IllegalArgumentException("Unknown Textract strategy: " + strategyName);
         }
@@ -97,13 +100,12 @@ public class AiUsageService {
     @Transactional
     public void recordBedrockUsage(UserApp user, long inputTokens, long outputTokens) {
         LocalDate month = currentMonth();
-        AiUsageGlobal global = getOrCreateGlobalMonth(month);
-        AiUsageUser userUsage = getOrCreateUserMonth(user, month);
 
-        global.setBedrockInputTokens(global.getBedrockInputTokens() + inputTokens);
-        global.setBedrockOutputTokens(global.getBedrockOutputTokens() + outputTokens);
-        userUsage.setBedrockInputTokens(userUsage.getBedrockInputTokens() + inputTokens);
-        userUsage.setBedrockOutputTokens(userUsage.getBedrockOutputTokens() + outputTokens);
+        getOrCreateGlobalMonth(month);
+        getOrCreateUserMonth(user, month);
+
+        globalRepository.addBedrockTokens(month, inputTokens, outputTokens);
+        userRepository.addBedrockTokens(user.getId(), month, inputTokens, outputTokens);
     }
 
     @Transactional(readOnly = true)
@@ -132,14 +134,20 @@ public class AiUsageService {
     }
 
     private AiUsageGlobal getOrCreateGlobalMonth(LocalDate month) {
-        return globalRepository.findByMonth(month).orElseGet(() ->
-            globalRepository.save(AiUsageGlobal.builder().month(month).build())
-        );
+        return globalRepository.findByMonth(month).orElseGet(() -> {
+            globalRepository.insertIfAbsent(month);
+            return globalRepository.findByMonth(month).orElseThrow(() ->
+                new IllegalStateException("ai_usage_global row missing for " + month)
+            );
+        });
     }
 
     private AiUsageUser getOrCreateUserMonth(UserApp user, LocalDate month) {
-        return userRepository.findByUserIdAndMonth(user.getId(), month).orElseGet(() ->
-            userRepository.save(AiUsageUser.builder().user(user).month(month).build())
-        );
+        return userRepository.findByUserIdAndMonth(user.getId(), month).orElseGet(() -> {
+            userRepository.insertIfAbsent(user.getId(), month);
+            return userRepository.findByUserIdAndMonth(user.getId(), month).orElseThrow(() ->
+                new IllegalStateException("ai_usage_user row missing for " + user.getId())
+            );
+        });
     }
 }
