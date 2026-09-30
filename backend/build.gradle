@@ -43,6 +43,7 @@ dependencies {
 	implementation 'software.amazon.awssdk:s3'
 	implementation 'software.amazon.awssdk:textract'
 	implementation 'software.amazon.awssdk:bedrockruntime'
+	implementation 'software.amazon.awssdk:costexplorer'
 }
 
 tasks.named('test') {
