@@ -7,6 +7,10 @@ Create a background job that queries AWS Cost Explorer and updates the global us
 - **New:** `backend/src/main/java/com/arielsoto/spendtracker/aiusage/CostExplorerConfig.java`
 - **New:** `backend/src/main/java/com/arielsoto/spendtracker/aiusage/AwsBillingSyncJob.java`
 
+## Dependencies
+- Slice 8-bis complete. This job calls `insertIfAbsent` and `setCountersFromBilling` on
+  `AiUsageGlobalRepository`; it must not read or mutate the `AiUsageGlobal` entity.
+
 ## Details
 
 ### CostExplorerConfig.java
@@ -40,9 +44,7 @@ public class AwsBillingSyncJob {
 
         log.info("billing_sync_start month={}", monthStart);
 
-        AiUsageGlobal usage = globalRepo.findByMonth(monthStart)
-            .orElseGet(() -> globalRepo.save(
-                AiUsageGlobal.builder().month(monthStart).build()));
+        globalRepo.insertIfAbsent(monthStart);
 
         try {
             long expensePages = queryTextractUsage(
@@ -51,16 +53,15 @@ public class AwsBillingSyncJob {
                 "SyncTextPagesProcessed", monthStart, tomorrow)
                 + queryTextractUsage("AsyncTextPagesProcessed", monthStart, tomorrow);
 
-            usage.setAnalyzeExpensePages((int) expensePages);
-            usage.setDetectTextPages((int) textPages);
-
             long inputTokens = queryBedrockTokens("input-tokens", monthStart, tomorrow);
             long outputTokens = queryBedrockTokens("output-tokens", monthStart, tomorrow);
 
-            usage.setBedrockInputTokens(inputTokens);
-            usage.setBedrockOutputTokens(outputTokens);
-
-            globalRepo.save(usage);
+            globalRepo.setCountersFromBilling(
+                monthStart,
+                (int) expensePages,
+                (int) textPages,
+                inputTokens,
+                outputTokens);
 
             log.info("billing_sync_complete month={} expensePages={} textPages={} "
                 + "inputTokens={} outputTokens={}",
@@ -96,7 +97,8 @@ public class AwsBillingSyncJob {
         for (ResultByTime result : costExplorerClient.getCostAndUsage(request).resultsByTime()) {
             for (Group group : result.groups()) {
                 if (group.keys().stream().anyMatch(k -> k.contains(usageTypeSuffix))) {
-                    total += Long.parseLong(group.metrics().get("UsageQuantity").amount());
+                    total += new BigDecimal(
+                        group.metrics().get("UsageQuantity").amount()).longValue();
                 }
             }
         }
@@ -128,7 +130,8 @@ public class AwsBillingSyncJob {
         for (ResultByTime result : costExplorerClient.getCostAndUsage(request).resultsByTime()) {
             for (Group group : result.groups()) {
                 if (group.keys().stream().anyMatch(k -> k.endsWith(tokenSuffix))) {
-                    total += Long.parseLong(group.metrics().get("UsageQuantity").amount());
+                    total += new BigDecimal(
+                        group.metrics().get("UsageQuantity").amount()).longValue();
                 }
             }
         }
@@ -136,27 +139,6 @@ public class AwsBillingSyncJob {
     }
 }
 ```
-
-## Notes
-
-This job mutates the same `ai_usage_global` row that `AiUsageService` increments on
-the request path (`validateAndPickStrategy`, `validateBedrockUsage`,
-`recordTextractUsage`, `recordBedrockUsage`). Those methods read-then-write without
-pessimistic locking, so two issues exist today and need a decision here:
-
-- **Create race:** concurrent first requests in a month can both miss the lookup and
-  then insert, hitting `uq_ai_usage_global_month` / `uq_ai_usage_user_month`
-  (`DataIntegrityViolationException` on `getOrCreate*`).
-- **Lost update:** concurrent increments read the same counter value and overwrite each
-  other, so the global counters under-count. This job's `save(usage)` can also clobber
-  a request-path increment (and vice versa) for the same reason.
-
-Options, cheapest first: upsert in `getOrCreate*` (`INSERT ... ON CONFLICT DO NOTHING`
-+ re-select) to fix the create race; `@Lock(PESSIMISTIC_WRITE)` repository finders to
-serialize read-modify-write; atomic `SET x = x + n` updates instead of entity mutation.
-Note that AWS Cost Explorer values become authoritative for global counters after a
-sync, which makes the lost-update window for those counters mostly self-healing — the
-per-user counters are the ones that stay local and need real protection.
 
 ## Verify
 - `./gradlew compileJava` passes
