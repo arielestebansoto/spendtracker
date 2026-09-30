@@ -3,6 +3,13 @@
 ## Goal
 Verify the complete flow works: upload receipt → limits checked → usage recorded → settings shows usage.
 
+## Dependencies
+- Slice 9 complete (settings page renders the usage section).
+- Slice 13 complete — the `ce:GetCostAndUsage` IAM grant must exist or step 6 cannot pass.
+- Step 6 additionally depends on a real AWS account with Textract and Bedrock usage in the
+  current month. It cannot be verified against a fresh account: with no usage yet, a correct
+  sync writes zeros and looks identical to a broken matcher.
+
 ## Steps
 
 1. **Start the stack:**
@@ -33,8 +40,13 @@ Verify the complete flow works: upload receipt → limits checked → usage reco
    - Set both to limits → should return 429 error
 
 6. **Verify billing sync:**
-   - Check logs hourly for `billing_sync_start` / `billing_sync_complete`
+   - Wait for the next `0 0 */6 * * *` cron tick (00:00, 06:00, 12:00, 18:00 server time)
+   - Check logs for `billing_sync_start` / `billing_sync_complete`
    - Global table updated from AWS Cost Explorer data
+   - If the log says `billing_sync_skipped`, the usage-type matchers are wrong and the
+     observed AWS codes are in the log line — see slice 11
+   - If the log says `billing_sync_failed`, the IAM grant for `ce:GetCostAndUsage` is missing
+     — see slice 13
 
 ## Checklist
 - [ ] Receipt upload works with AnalyzeExpense strategy
@@ -45,4 +57,4 @@ Verify the complete flow works: upload receipt → limits checked → usage reco
 - [ ] Global usage increments correctly
 - [ ] GET /api/v1/ai-usage/me returns correct data
 - [ ] Settings page displays usage numbers
-- [ ] Billing sync job runs hourly and updates global table
+- [ ] Billing sync job runs on its 6-hourly cron and updates the global table
