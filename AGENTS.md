@@ -38,8 +38,8 @@ cd frontend && pnpm dev
 ### Useful Commands
 
 ```bash
-# Backend: run tests
-cd backend && ./gradlew test
+# Backend: run tests (--no-daemon required, see Slice 14)
+cd backend && ./gradlew test --no-daemon
 
 # Backend: build jar
 cd backend && ./gradlew bootJar
