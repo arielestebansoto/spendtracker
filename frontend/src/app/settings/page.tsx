@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { logout, deleteAccount } from "@/app/lib/auth";
+import { fetchAiUsage, type AiUsage } from "@/app/lib/ai-usage";
 import LoadingState from "@/app/components/LoadingState";
 import DeleteAccountModal from "@/app/components/DeleteAccountModal";
 
@@ -12,6 +13,15 @@ export default function SettingsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    fetchAiUsage()
+      .then(setAiUsage)
+      .catch(console.error);
+  }, [user]);
 
   async function handleLogout() {
     try {
@@ -54,6 +64,50 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {aiUsage && (
+          <section className="rounded-xl border border-border p-6">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+              AI usage this month
+            </h2>
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Expense extraction
+                </p>
+                <p className="text-sm font-medium">
+                  {aiUsage.analyzeExpenseUsed} of {aiUsage.analyzeExpenseLimit}{" "}
+                  pages used
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Text extraction
+                </p>
+                <p className="text-sm font-medium">
+                  {aiUsage.detectTextUsed} of {aiUsage.detectTextLimit} pages
+                  used
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">AI input tokens</p>
+                <p className="text-sm font-medium">
+                  {aiUsage.bedrockInputUsed.toLocaleString()} of{" "}
+                  {aiUsage.bedrockInputLimit.toLocaleString()} used
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  AI output tokens
+                </p>
+                <p className="text-sm font-medium">
+                  {aiUsage.bedrockOutputUsed.toLocaleString()} of{" "}
+                  {aiUsage.bedrockOutputLimit.toLocaleString()} used
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border border-border p-6">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
