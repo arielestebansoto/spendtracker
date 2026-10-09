@@ -28,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(prefix = "app.billing", name = "enabled", havingValue = "true")
 public class AwsBillingSyncJob {
 
     private static final String USAGE_QUANTITY = "UsageQuantity";

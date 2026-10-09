@@ -14,6 +14,8 @@ class CostExplorerConfig {
     // Cost Explorer is a global service; us-east-1 is its canonical endpoint and
     // the only region available on the standard pricing tier.
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(prefix = "app.billing", name = "enabled", havingValue = "true", matchIfMissing = false)
+    @org.springframework.context.annotation.Profile("!test")
     CostExplorerClient costExplorerClient() {
         return CostExplorerClient.builder()
             .region(Region.US_EAST_1)

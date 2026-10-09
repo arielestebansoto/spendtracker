@@ -18,8 +18,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-@Service
-@EnableConfigurationProperties(BedrockProperties.class)
 public class BedrockClassificationService {
 
     private static final Logger log = LoggerFactory.getLogger(BedrockClassificationService.class);
@@ -29,10 +27,12 @@ public class BedrockClassificationService {
     private final ObjectMapper objectMapper;
     private final Environment environment;
 
-    public BedrockClassificationService(BedrockProperties properties, Environment environment) {
+    public BedrockClassificationService(BedrockRuntimeClient bedrockClient,
+                                      BedrockProperties properties,
+                                      Environment environment) {
+        this.bedrockClient = bedrockClient;
         this.properties = properties;
         this.environment = environment;
-        this.bedrockClient = BedrockRuntimeClient.create();
         this.objectMapper = new ObjectMapper();
     }
 

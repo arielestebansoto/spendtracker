@@ -1,6 +1,5 @@
 package com.arielsoto.spendtracker.ocr;
 
-import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.Block;
@@ -12,13 +11,12 @@ import software.amazon.awssdk.services.textract.model.Document;
 import java.util.ArrayList;
 import java.util.List;
 
-@Service
 public class DetectDocumentTextTextractStrategy implements TextractStrategy {
 
     private final TextractClient textractClient;
 
-    public DetectDocumentTextTextractStrategy() {
-        this.textractClient = TextractClient.create();
+    public DetectDocumentTextTextractStrategy(TextractClient textractClient) {
+        this.textractClient = textractClient;
     }
 
     @Override

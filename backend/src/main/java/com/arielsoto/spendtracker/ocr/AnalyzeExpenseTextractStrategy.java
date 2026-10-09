@@ -2,7 +2,6 @@ package com.arielsoto.spendtracker.ocr;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.textract.model.*;
@@ -10,15 +9,14 @@ import software.amazon.awssdk.services.textract.model.*;
 import java.util.ArrayList;
 import java.util.List;
 
-@Service
 public class AnalyzeExpenseTextractStrategy implements TextractStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(AnalyzeExpenseTextractStrategy.class);
 
     private final TextractClient textractClient;
 
-    public AnalyzeExpenseTextractStrategy() {
-        this.textractClient = TextractClient.create();
+    public AnalyzeExpenseTextractStrategy(TextractClient textractClient) {
+        this.textractClient = textractClient;
     }
 
     @Override
