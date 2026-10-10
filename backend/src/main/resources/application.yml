@@ -67,3 +67,14 @@ app:
       secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
   bedrock:
     model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
+  ai-usage:
+    global:
+      analyze-expense-pages: 100
+      detect-text-pages: 1000
+      bedrock-input-tokens: 1000000
+      bedrock-output-tokens: 1000000
+    user:
+      analyze-expense-pages: 10
+      detect-text-pages: 100
+      bedrock-input-tokens: 100000
+      bedrock-output-tokens: 100000

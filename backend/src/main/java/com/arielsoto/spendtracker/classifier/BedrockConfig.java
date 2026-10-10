@@ -1,0 +1,34 @@
+package com.arielsoto.spendtracker.classifier;
+
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+
+@Configuration
+@Profile("!test")
+@EnableConfigurationProperties(BedrockProperties.class)
+@ConditionalOnProperty(prefix = "app.aws.bedrock", name = "enabled", havingValue = "true")
+public class BedrockConfig {
+
+    @Bean
+    public BedrockRuntimeClient bedrockRuntimeClient() {
+        return BedrockRuntimeClient.create();
+    }
+
+    @Configuration
+    @ConditionalOnBean(BedrockRuntimeClient.class)
+    static class BedrockServiceConfig {
+        @Bean
+        public BedrockClassificationService bedrockClassificationService(
+                BedrockRuntimeClient bedrockRuntimeClient,
+                BedrockProperties properties,
+                Environment environment) {
+            return new BedrockClassificationService(bedrockRuntimeClient, properties, environment);
+        }
+    }
+}

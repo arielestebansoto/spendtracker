@@ -1,11 +1,14 @@
 package com.arielsoto.spendtracker.receipt;
 
+import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
+import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.ocr.TextractOcrService;
+import com.arielsoto.spendtracker.ocr.TextractStrategy;
 import com.arielsoto.spendtracker.spend.*;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
@@ -30,8 +33,8 @@ public class ReceiptProcessingService {
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
-    private final TextractOcrService ocrService;
     private final BedrockClassificationService classifierService;
+    private final AiUsageService aiUsageService;
     // Storage is optional - may not be configured in dev
     private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
 
@@ -83,8 +86,10 @@ public class ReceiptProcessingService {
 
             // Step 2: Extract text with OCR
             long ocrStart = System.currentTimeMillis();
+            TextractStrategy strategy = aiUsageService.validateAndPickStrategy(user);
             byte[] imageBytes = file.getBytes();
-            OcrResult ocrResult = ocrService.extractText(imageBytes, file.getContentType());
+            OcrResult ocrResult = strategy.extractText(imageBytes, file.getContentType());
+            aiUsageService.recordTextractUsage(user, strategy.name());
 
             if (ocrResult.rawText() == null || ocrResult.rawText().isBlank()) {
                 throw new ReceiptProcessingException(
@@ -100,16 +105,22 @@ public class ReceiptProcessingService {
                 ocrResult.rawText()
             );
             log.info(
-                "receipt_ocr_success userId={} spendId={} s3Key={} durationMs={}",
+                "receipt_ocr_success userId={} spendId={} s3Key={} strategy={} durationMs={}",
                 user.getId(),
                 spend.getId(),
                 storedFile.key(),
+                strategy.name(),
                 System.currentTimeMillis() - ocrStart
             );
 
             // Step 3: Classify with Bedrock
             long classifyStart = System.currentTimeMillis();
-            ClassifiedSpend classified = classifierService.classify(ocrResult.rawText());
+            aiUsageService.validateBedrockUsage(user);
+            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText());
+            aiUsageService.recordBedrockUsage(
+                user, bcResult.inputTokens(), bcResult.outputTokens()
+            );
+            ClassifiedSpend classified = bcResult.classified();
 
             if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
                 throw new ReceiptProcessingException(
@@ -142,6 +153,11 @@ public class ReceiptProcessingService {
 
             return result;
 
+        } catch (AiUsageLimitExceededException e) {
+            log.warn("receipt_processing_ai_limit_exceeded userId={} spendId={} resourceType={}",
+                user.getId(), spend.getId(), e.getResourceType());
+            rollback(user, spend, storedFile);
+            throw e;
         } catch (ReceiptProcessingException e) {
             log.error("receipt_processing_failed userId={} spendId={} reason={}",
                 user.getId(), spend.getId(), e.getMessage());

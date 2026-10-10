@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
 import com.arielsoto.spendtracker.receipt.SpendProcessingResult;
@@ -184,6 +185,14 @@ public class SpendController {
                 result.spend().getAmount(),
                 result.spend().getSpendDate()
             ));
+        } catch (AiUsageLimitExceededException e) {
+            log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",
+                user.getId(), e.getResourceType());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of(
+                    "error", e.getMessage(),
+                    "resourceType", e.getResourceType()
+                ));
         } catch (ReceiptProcessingException e) {
             log.error("api_create_spend_from_receipt_failed userId={} reason={}",
                 user.getId(), e.getMessage());

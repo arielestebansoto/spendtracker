@@ -1,7 +1,61 @@
 app:
+  aws:
+    textract:
+      enabled: false
+    bedrock:
+      enabled: false
+  billing:
+    enabled: false
   storage:
     s3:
       bucket-name: test-bucket
       region: us-east-1
       access-key-id: test-key
       secret-access-key: test-secret
+  ai-usage:
+    global:
+      analyze-expense-pages: 100
+      detect-text-pages: 1000
+      bedrock-input-tokens: 1000000
+      bedrock-output-tokens: 1000000
+    user:
+      analyze-expense-pages: 10
+      detect-text-pages: 100
+      bedrock-input-tokens: 100000
+      bedrock-output-tokens: 100000
+  cors:
+    allowed-origins: http://localhost:3000
+    allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+    allowed-headers: Authorization,Cache-Control,Content-Type,X-XSRF-TOKEN
+  oauth2:
+    default-success-url: http://localhost:3000
+  logout:
+    logout-url: /api/v1/auth/logout
+
+spring:
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  task:
+    scheduling:
+      enabled: false
+  main:
+    allow-bean-definition-overriding: false
+  datasource:
+    url: jdbc:postgresql://localhost:5432/dummy
+    username: dummy
+    password: dummy
+    driver-class-name: org.postgresql.Driver
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: test-client-id
+            client-secret: test-client-secret
+          github:
+            client-id: test-client-id
+            client-secret: test-client-secret
