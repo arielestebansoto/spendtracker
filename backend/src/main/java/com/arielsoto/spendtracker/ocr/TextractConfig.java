@@ -1,11 +1,9 @@
 package com.arielsoto.spendtracker.ocr;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.textract.TextractClient;
 
 @Configuration
@@ -18,19 +16,15 @@ public class TextractConfig {
         return TextractClient.create();
     }
 
-    @Service
-    @ConditionalOnBean(TextractClient.class)
-    static class DetectDocumentTextTextractStrategyImpl extends DetectDocumentTextTextractStrategy {
-        public DetectDocumentTextTextractStrategyImpl(TextractClient textractClient) {
-            super(textractClient);
-        }
+    @Bean
+    public DetectDocumentTextTextractStrategy detectDocumentTextTextractStrategy(
+            TextractClient textractClient) {
+        return new DetectDocumentTextTextractStrategy(textractClient);
     }
 
-    @Service
-    @ConditionalOnBean(TextractClient.class)
-    static class AnalyzeExpenseTextractStrategyImpl extends AnalyzeExpenseTextractStrategy {
-        public AnalyzeExpenseTextractStrategyImpl(TextractClient textractClient) {
-            super(textractClient);
-        }
+    @Bean
+    public AnalyzeExpenseTextractStrategy analyzeExpenseTextractStrategy(
+            TextractClient textractClient) {
+        return new AnalyzeExpenseTextractStrategy(textractClient);
     }
 }
