@@ -55,6 +55,23 @@ public class AiUsageService {
     }
 
     @Transactional
+    public TextractStrategy pickFallbackStrategy(UserApp user, String usedStrategyName) {
+        if (DETECT_TEXT.equals(usedStrategyName)) {
+            return null;
+        }
+
+        LocalDate month = currentMonth();
+        AiUsageGlobal global = getOrCreateGlobalMonth(month);
+        AiUsageUser userUsage = getOrCreateUserMonth(user, month);
+
+        boolean detectTextAvailable =
+            global.getDetectTextPages() < properties.global().detectTextPages()
+                && userUsage.getDetectTextPages() < properties.user().detectTextPages();
+
+        return detectTextAvailable ? strategyByName(DETECT_TEXT) : null;
+    }
+
+    @Transactional
     public void validateBedrockUsage(UserApp user) {
         LocalDate month = currentMonth();
         AiUsageGlobal global = getOrCreateGlobalMonth(month);
