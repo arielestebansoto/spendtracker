@@ -1,5 +1,6 @@
 package com.arielsoto.spendtracker.classifier;
 
+import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -41,8 +42,12 @@ public class BedrockClassificationService {
     }
 
     public ClassifiedSpendResult classify(String ocrText) {
+        return classify(ocrText, List.of());
+    }
+
+    public ClassifiedSpendResult classify(String ocrText, List<ClassificationRule> rules) {
         try {
-            String prompt = ClassificationPrompt.buildPrompt(ocrText);
+            String prompt = ClassificationPrompt.buildPrompt(ocrText, rules);
 
             if (isDev()) {
                 log.debug("bedrock_request_prompt modelId={}\n{}", properties.modelId(), prompt);

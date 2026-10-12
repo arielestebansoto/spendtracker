@@ -5,6 +5,8 @@ import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
+import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
+import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepository;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
@@ -33,6 +35,7 @@ public class ReceiptProcessingService {
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
+    private final ClassificationRuleRepository classificationRuleRepository;
     private final BedrockClassificationService classifierService;
     private final AiUsageService aiUsageService;
     // Storage is optional - may not be configured in dev
@@ -116,7 +119,9 @@ public class ReceiptProcessingService {
             // Step 3: Classify with Bedrock
             long classifyStart = System.currentTimeMillis();
             aiUsageService.validateBedrockUsage(user);
-            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText());
+            List<ClassificationRule> rules = classificationRuleRepository
+                .findByUserIdOrderByCreatedAtAsc(user.getId());
+            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText(), rules);
             aiUsageService.recordBedrockUsage(
                 user, bcResult.inputTokens(), bcResult.outputTokens()
             );
