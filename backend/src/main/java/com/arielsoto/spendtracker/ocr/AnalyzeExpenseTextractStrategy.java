@@ -64,17 +64,14 @@ public class AnalyzeExpenseTextractStrategy implements TextractStrategy {
                         : 0f;
                     allConfidences.add(conf);
 
-                    rawText.append(label).append(": ").append(value).append("\n");
+                    String line = label.isBlank() ? value : label + ": " + value;
+                    rawText.append(line).append("\n");
 
-                    allBlocks.add(new OcrResult.TextBlock(
-                        label + ": " + value,
-                        conf,
-                        List.of()
-                    ));
+                    allBlocks.add(new OcrResult.TextBlock(line, conf, List.of()));
                 }
             }
 
-            rawText.append("---\nLine Items:\n");
+            StringBuilder lineItemsText = new StringBuilder();
             for (LineItemGroup group : doc.lineItemGroups()) {
                 for (LineItemFields item : group.lineItems()) {
                     StringBuilder itemText = new StringBuilder();
@@ -86,6 +83,12 @@ public class AnalyzeExpenseTextractStrategy implements TextractStrategy {
                             ? field.valueDetection().text()
                             : "";
                         if (!value.isBlank()) {
+                            String fieldType = field.type() != null
+                                ? field.type().text()
+                                : "";
+                            if (!fieldType.isBlank()) {
+                                itemText.append(fieldType).append(": ");
+                            }
                             itemText.append(value).append(" ");
                             if (field.valueDetection() != null) {
                                 itemConfidence += field.valueDetection().confidence();
@@ -98,11 +101,19 @@ public class AnalyzeExpenseTextractStrategy implements TextractStrategy {
                     if (!itemStr.isEmpty()) {
                         float avgConf = fieldCount > 0 ? itemConfidence / fieldCount : 0f;
                         allConfidences.add(avgConf);
-                        rawText.append("- ").append(itemStr).append("\n");
+                        lineItemsText.append("- ").append(itemStr).append("\n");
                         allBlocks.add(new OcrResult.TextBlock(itemStr, avgConf, List.of()));
                     }
                 }
             }
+
+            if (!lineItemsText.isEmpty()) {
+                rawText.append("---\nLine Items:\n").append(lineItemsText);
+            }
+        }
+
+        if (allBlocks.isEmpty()) {
+            return new OcrResult("", 0f, List.of());
         }
 
         float avgConfidence = allConfidences.isEmpty()

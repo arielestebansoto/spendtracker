@@ -5,6 +5,8 @@ import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
+import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
+import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepository;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
@@ -33,6 +35,7 @@ public class ReceiptProcessingService {
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
+    private final ClassificationRuleRepository classificationRuleRepository;
     private final BedrockClassificationService classifierService;
     private final AiUsageService aiUsageService;
     // Storage is optional - may not be configured in dev
@@ -91,7 +94,25 @@ public class ReceiptProcessingService {
             OcrResult ocrResult = strategy.extractText(imageBytes, file.getContentType());
             aiUsageService.recordTextractUsage(user, strategy.name());
 
-            if (ocrResult.rawText() == null || ocrResult.rawText().isBlank()) {
+            if (!hasText(ocrResult)) {
+                TextractStrategy fallback =
+                    aiUsageService.pickFallbackStrategy(user, strategy.name());
+                if (fallback != null) {
+                    log.info(
+                        "receipt_ocr_fallback userId={} spendId={} from={} to={}",
+                        user.getId(), spend.getId(), strategy.name(), fallback.name()
+                    );
+                    OcrResult fallbackResult =
+                        fallback.extractText(imageBytes, file.getContentType());
+                    aiUsageService.recordTextractUsage(user, fallback.name());
+                    if (hasText(fallbackResult)) {
+                        strategy = fallback;
+                        ocrResult = fallbackResult;
+                    }
+                }
+            }
+
+            if (!hasText(ocrResult)) {
                 throw new ReceiptProcessingException(
                     "OCR returned empty text — check Textract permissions and image quality"
                 );
@@ -116,7 +137,9 @@ public class ReceiptProcessingService {
             // Step 3: Classify with Bedrock
             long classifyStart = System.currentTimeMillis();
             aiUsageService.validateBedrockUsage(user);
-            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText());
+            List<ClassificationRule> rules = classificationRuleRepository
+                .findByUserIdOrderByCreatedAtAsc(user.getId());
+            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText(), rules);
             aiUsageService.recordBedrockUsage(
                 user, bcResult.inputTokens(), bcResult.outputTokens()
             );
@@ -171,6 +194,10 @@ public class ReceiptProcessingService {
                 "We cannot process this receipt right now. Please try again later.", e
             );
         }
+    }
+
+    private boolean hasText(OcrResult result) {
+        return result.rawText() != null && !result.rawText().isBlank();
     }
 
     private SpendProcessingResult saveClassifiedSpend(

@@ -122,6 +122,23 @@ export default function ViewSpendPage() {
         )}
       </div>
 
+      {spend.category === "Uncategorized" && (
+        <div className="mt-6 rounded-xl border border-border bg-accent/50 p-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">This spend could not be categorized</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create a custom rule to improve classification for your future spends.
+            </p>
+          </div>
+          <button
+            onClick={() => router.push("/rules")}
+            className="shrink-0 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          >
+            Create new rule for next spends
+          </button>
+        </div>
+      )}
+
       <div className="mt-6">
         <h2 className="text-lg font-semibold mb-3">Receipt</h2>
         {spend.receiptUrl ? (

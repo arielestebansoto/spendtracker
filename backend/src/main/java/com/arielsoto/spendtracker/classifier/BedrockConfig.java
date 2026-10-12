@@ -1,6 +1,5 @@
 package com.arielsoto.spendtracker.classifier;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,15 +19,11 @@ public class BedrockConfig {
         return BedrockRuntimeClient.create();
     }
 
-    @Configuration
-    @ConditionalOnBean(BedrockRuntimeClient.class)
-    static class BedrockServiceConfig {
-        @Bean
-        public BedrockClassificationService bedrockClassificationService(
-                BedrockRuntimeClient bedrockRuntimeClient,
-                BedrockProperties properties,
-                Environment environment) {
-            return new BedrockClassificationService(bedrockRuntimeClient, properties, environment);
-        }
+    @Bean
+    public BedrockClassificationService bedrockClassificationService(
+            BedrockRuntimeClient bedrockRuntimeClient,
+            BedrockProperties properties,
+            Environment environment) {
+        return new BedrockClassificationService(bedrockRuntimeClient, properties, environment);
     }
 }

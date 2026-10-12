@@ -30,6 +30,8 @@ public class TestBedrockConfig {
         );
         Mockito.when(mock.classify(Mockito.anyString()))
                 .thenReturn(new ClassifiedSpendResult(classified, 0, 0));
+        Mockito.when(mock.classify(Mockito.anyString(), Mockito.anyList()))
+                .thenReturn(new ClassifiedSpendResult(classified, 0, 0));
         return mock;
     }
 }
