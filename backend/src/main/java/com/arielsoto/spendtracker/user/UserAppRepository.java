@@ -4,6 +4,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+
+import jakarta.persistence.LockModeType;
 
 public interface UserAppRepository extends JpaRepository<UserApp, UUID>{
     
@@ -15,4 +19,8 @@ public interface UserAppRepository extends JpaRepository<UserApp, UUID>{
     Optional<UserApp> findByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM UserApp u WHERE u.id = :id")
+    Optional<UserApp> findByIdForUpdate(UUID id);
 }
