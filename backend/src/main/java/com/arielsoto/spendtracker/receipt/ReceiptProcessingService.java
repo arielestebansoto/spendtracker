@@ -1,16 +1,10 @@
 package com.arielsoto.spendtracker.receipt;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
-import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
-import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
-import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
-import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
-import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepository;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.ocr.TextractStrategy;
 import com.arielsoto.spendtracker.spend.*;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
@@ -35,9 +29,8 @@ public class ReceiptProcessingService {
     private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
-    private final ClassificationRuleRepository classificationRuleRepository;
-    private final BedrockClassificationService classifierService;
-    private final AiUsageService aiUsageService;
+    private final ReceiptExtractionService extractionService;
+    private final ReceiptEnrichmentService enrichmentService;
     // Storage is optional - may not be configured in dev
     private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
 
@@ -87,70 +80,22 @@ public class ReceiptProcessingService {
                 System.currentTimeMillis() - storageStart
             );
 
-            // Step 2: Extract text with OCR
+            // Step 2: Extraction (image to raw text)
             long ocrStart = System.currentTimeMillis();
-            TextractStrategy strategy = aiUsageService.validateAndPickStrategy(user);
-            byte[] imageBytes = file.getBytes();
-            OcrResult ocrResult = strategy.extractText(imageBytes, file.getContentType());
-            aiUsageService.recordTextractUsage(user, strategy.name());
-
-            if (!hasText(ocrResult)) {
-                TextractStrategy fallback =
-                    aiUsageService.pickFallbackStrategy(user, strategy.name());
-                if (fallback != null) {
-                    log.info(
-                        "receipt_ocr_fallback userId={} spendId={} from={} to={}",
-                        user.getId(), spend.getId(), strategy.name(), fallback.name()
-                    );
-                    OcrResult fallbackResult =
-                        fallback.extractText(imageBytes, file.getContentType());
-                    aiUsageService.recordTextractUsage(user, fallback.name());
-                    if (hasText(fallbackResult)) {
-                        strategy = fallback;
-                        ocrResult = fallbackResult;
-                    }
-                }
-            }
-
-            if (!hasText(ocrResult)) {
-                throw new ReceiptProcessingException(
-                    "OCR returned empty text — check Textract permissions and image quality"
-                );
-            }
-
-            log.debug(
-                "receipt_ocr_raw_text userId={} spendId={} confidence={}\n{}",
-                user.getId(),
-                spend.getId(),
-                ocrResult.confidence(),
-                ocrResult.rawText()
+            OcrResult ocrResult = extractionService.extract(
+                user, spend.getId(), file.getBytes(), file.getContentType()
             );
             log.info(
-                "receipt_ocr_success userId={} spendId={} s3Key={} strategy={} durationMs={}",
+                "receipt_extraction_complete userId={} spendId={} s3Key={} durationMs={}",
                 user.getId(),
                 spend.getId(),
                 storedFile.key(),
-                strategy.name(),
                 System.currentTimeMillis() - ocrStart
             );
 
-            // Step 3: Classify with Bedrock
+            // Step 3: Enrichment (raw text to structured result)
             long classifyStart = System.currentTimeMillis();
-            aiUsageService.validateBedrockUsage(user);
-            List<ClassificationRule> rules = classificationRuleRepository
-                .findByUserIdOrderByCreatedAtAsc(user.getId());
-            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText(), rules);
-            aiUsageService.recordBedrockUsage(
-                user, bcResult.inputTokens(), bcResult.outputTokens()
-            );
-            ClassifiedSpend classified = bcResult.classified();
-
-            if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
-                throw new ReceiptProcessingException(
-                    "Classification returned no amount — model could not extract data from receipt"
-                );
-            }
-
+            ClassifiedSpend classified = enrichmentService.enrich(user, ocrResult.rawText());
             log.info(
                 "receipt_classification_success userId={} spendId={} s3Key={} category={} totalAmount={} durationMs={}",
                 user.getId(),
@@ -194,10 +139,6 @@ public class ReceiptProcessingService {
                 "We cannot process this receipt right now. Please try again later.", e
             );
         }
-    }
-
-    private boolean hasText(OcrResult result) {
-        return result.rawText() != null && !result.rawText().isBlank();
     }
 
     private SpendProcessingResult saveClassifiedSpend(
