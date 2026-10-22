@@ -37,6 +37,7 @@ import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
+import com.arielsoto.spendtracker.queue.SpendMessage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.spend.SpendRepository;
@@ -387,5 +388,158 @@ class ReceiptProcessingServiceTest {
 
         assertEquals(SpendStatus.FAILED, spend.getStatus());
         verifyNoInteractions(enrichmentService);
+    }
+
+    // ---- category-only enrichment (Reclassify) ----
+
+    private static final LocalDate USER_DATE = LocalDate.of(2026, 3, 9);
+
+    // A processed Spend the user has corrected, locked in PROCESSING while the reclassification runs.
+    private Spend spendBeingReclassified(SpendStatus status) {
+        Spend spend = spendIn(status);
+        spend.setCategory(comida);
+        spend.setDescription("Edited by the user");
+        spend.setAmount(new BigDecimal("25.00"));
+        spend.setSpendDate(USER_DATE);
+        spend.getItems().add(SpendItem.builder().spend(spend).description("Milk").amount(new BigDecimal("4.50")).position(0).build());
+        spend.setReceiptMetadata(ReceiptMetadata.builder()
+            .spend(spend).rawOcrText("TOTAL 10").rawResponse(Map.of("output", "original")).build());
+        return spend;
+    }
+
+    @Test
+    void categoryOnly_updatesJustTheCategoryFromTheCurrentDescriptionItemsAndRawText() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        Category transporte = Category.builder().id(UUID.randomUUID()).name("Transporte").build();
+        when(categoryRepository.findByName("Transporte")).thenReturn(Optional.of(transporte));
+        when(enrichmentService.reclassify(user, "Edited by the user", spend.getItems(), "TOTAL 10"))
+            .thenReturn("Transporte");
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        assertEquals(transporte, spend.getCategory());
+        assertEquals(new BigDecimal("25.00"), spend.getAmount());
+        assertEquals("Edited by the user", spend.getDescription());
+        assertEquals(USER_DATE, spend.getSpendDate());
+        assertEquals(List.of("Milk"), spend.getItems().stream().map(SpendItem::getDescription).toList());
+        assertEquals(Map.of("output", "original"), spend.getReceiptMetadata().getRawResponse());
+        verify(enrichmentService, never()).enrich(any(), any());
+        verify(spendRepository).save(spend);
+    }
+
+    @Test
+    void categoryOnly_fallsBackToUncategorizedWhenTheModelReturnsAnUnknownCategory() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Invented")).thenReturn(Optional.empty());
+        when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(uncategorized));
+        when(enrichmentService.reclassify(any(), any(), any(), any())).thenReturn("Invented");
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        assertEquals(uncategorized, spend.getCategory());
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+    }
+
+    @Test
+    void categoryOnly_dropsMessageForMissingSpend() {
+        UUID missing = UUID.randomUUID();
+        when(spendRepository.findWithUserById(missing)).thenReturn(Optional.empty());
+
+        service.processCategoryOnlyEnrichment(missing, false);
+
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSED", "FAILED"})
+    void categoryOnly_dropsDuplicateOrStaleMessageWithoutSideEffects(SpendStatus status) {
+        Spend spend = spendBeingReclassified(status);
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        assertEquals(status, spend.getStatus());
+        assertEquals(comida, spend.getCategory());
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void categoryOnly_failureBeforeLastAttemptLeavesSpendProcessingSoRedeliveryRetries() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(enrichmentService.reclassify(any(), any(), any(), any()))
+            .thenThrow(new ReceiptProcessingException("no category"));
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processCategoryOnlyEnrichment(spend.getId(), false));
+
+        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        assertEquals(comida, spend.getCategory());
+    }
+
+    @Test
+    void categoryOnly_failureOnLastAttemptRestoresProcessedAndKeepsTheUsersData() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(enrichmentService.reclassify(any(), any(), any(), any()))
+            .thenThrow(new ReceiptProcessingException("no category"));
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processCategoryOnlyEnrichment(spend.getId(), true));
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        assertEquals(comida, spend.getCategory());
+        assertEquals(new BigDecimal("25.00"), spend.getAmount());
+        assertEquals("Edited by the user", spend.getDescription());
+        verify(spendRepository).save(spend);
+        verify(spendRepository, never()).delete(any(Spend.class));
+    }
+
+    @Test
+    void categoryOnly_withNoQuotaLeftRestoresProcessedWithoutRetry() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(enrichmentService.reclassify(any(), any(), any(), any()))
+            .thenThrow(new AiUsageLimitExceededException("BEDROCK", "limit"));
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        assertEquals(comida, spend.getCategory());
+    }
+
+    @Test
+    void categoryOnly_withoutStoredRawTextRestoresProcessedOnTheLastAttempt() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        spend.setReceiptMetadata(null);
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processCategoryOnlyEnrichment(spend.getId(), true));
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        verifyNoInteractions(enrichmentService);
+    }
+
+    // ---- enrichment queue messages ----
+
+    @Test
+    void enrichmentMessage_withJustASpendIdRunsFullEnrichment() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(user, "TOTAL 10")).thenReturn(classification("Comida", null));
+
+        service.processEnrichmentMessage(new SpendMessage(spend.getId(), false), false);
+
+        assertEquals(new BigDecimal("10.50"), spend.getAmount());
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+    }
+
+    @Test
+    void enrichmentMessage_markedCategoryOnlyRunsCategoryOnlyEnrichment() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.reclassify(any(), any(), any(), any())).thenReturn("Comida");
+
+        service.processEnrichmentMessage(new SpendMessage(spend.getId(), true), false);
+
+        assertEquals(new BigDecimal("25.00"), spend.getAmount());
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        verify(enrichmentService, never()).enrich(any(), any());
     }
 }

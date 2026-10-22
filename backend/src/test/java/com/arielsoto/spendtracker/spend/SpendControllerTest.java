@@ -3,6 +3,8 @@ package com.arielsoto.spendtracker.spend;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,14 +17,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
+import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,5 +85,41 @@ class SpendControllerTest {
         mockMvc.perform(multipart("/api/v1/spends/from-receipt").file(receipt))
             .andExpect(status().isTooManyRequests())
             .andExpect(jsonPath("$.resourceType").value("TEXTRACT"));
+    }
+
+    @Test
+    void reclassifyReturnsTheSpendNowProcessing() throws Exception {
+        UUID spendId = UUID.randomUUID();
+        when(spendService.reclassify(spendId, user.getId())).thenReturn(new SpendDetailResponse(
+            spendId, UUID.randomUUID(), "Comida", "Lunch", BigDecimal.TEN, LocalDate.now(),
+            null, "/api/v1/spends/" + spendId + "/receipt", SpendStatus.PROCESSING
+        ));
+
+        mockMvc.perform(post("/api/v1/spends/{id}/reclassify", spendId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(spendId.toString()))
+            .andExpect(jsonPath("$.status").value("PROCESSING"));
+    }
+
+    @Test
+    void reclassifyReturns409WhenTheSpendIsInProgress() throws Exception {
+        UUID spendId = UUID.randomUUID();
+        when(spendService.reclassify(spendId, user.getId()))
+            .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "in progress"));
+
+        mockMvc.perform(post("/api/v1/spends/{id}/reclassify", spendId))
+            .andExpect(status().isConflict());
+    }
+
+    @Test
+    void updateReturns409WhenTheSpendIsInProgress() throws Exception {
+        UUID spendId = UUID.randomUUID();
+        when(spendService.update(any(), any(), any()))
+            .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "in progress"));
+
+        mockMvc.perform(put("/api/v1/spends/{id}", spendId)
+                .contentType("application/json")
+                .content("{\"description\":\"x\",\"amount\":10,\"spendDate\":\"2026-10-01\"}"))
+            .andExpect(status().isConflict());
     }
 }

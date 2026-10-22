@@ -32,8 +32,8 @@ class SqsQueuePollerTest {
     private final List<String> calls = new ArrayList<>();
 
     private SqsQueuePoller pollerWhoseWorkerThrows(boolean throwing) {
-        return new SqsQueuePoller("test", sqs, QUEUE_URL, 3, (spendId, lastAttempt) -> {
-            calls.add(spendId + ":" + lastAttempt);
+        return new SqsQueuePoller("test", sqs, QUEUE_URL, 3, (message, lastAttempt) -> {
+            calls.add(message.spendId() + ":" + message.categoryOnly() + ":" + lastAttempt);
             if (throwing) {
                 throw new RuntimeException("boom");
             }
@@ -54,7 +54,7 @@ class SqsQueuePollerTest {
 
         pollerWhoseWorkerThrows(false).handle(message(spendId.toString(), 1));
 
-        assertEquals(List.of(spendId + ":false"), calls);
+        assertEquals(List.of(spendId + ":false:false"), calls);
         ArgumentCaptor<DeleteMessageRequest> delete = ArgumentCaptor.forClass(DeleteMessageRequest.class);
         verify(sqs).deleteMessage(delete.capture());
         assertEquals(QUEUE_URL, delete.getValue().queueUrl());
@@ -74,7 +74,17 @@ class SqsQueuePollerTest {
 
         pollerWhoseWorkerThrows(false).handle(message(spendId.toString(), 3));
 
-        assertEquals(List.of(spendId + ":true"), calls);
+        assertEquals(List.of(spendId + ":false:true"), calls);
+    }
+
+    @Test
+    void categoryOnlyMessageIsHandedToTheWorkerAsCategoryOnly() {
+        UUID spendId = UUID.randomUUID();
+
+        pollerWhoseWorkerThrows(false).handle(message(spendId + ":category-only", 1));
+
+        assertEquals(List.of(spendId + ":true:false"), calls);
+        verify(sqs).deleteMessage(any(DeleteMessageRequest.class));
     }
 
     @Test

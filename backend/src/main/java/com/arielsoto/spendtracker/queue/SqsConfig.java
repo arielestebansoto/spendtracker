@@ -38,7 +38,7 @@ class SqsConfig {
             sqsClient,
             properties.receiptExtractionQueueUrl(),
             properties.maxReceiveCount(),
-            processingService::processExtraction
+            (message, lastAttempt) -> processingService.processExtraction(message.spendId(), lastAttempt)
         );
     }
 
@@ -54,7 +54,7 @@ class SqsConfig {
             sqsClient,
             properties.spendEnrichmentQueueUrl(),
             properties.maxReceiveCount(),
-            processingService::processEnrichment
+            processingService::processEnrichmentMessage
         );
     }
 }

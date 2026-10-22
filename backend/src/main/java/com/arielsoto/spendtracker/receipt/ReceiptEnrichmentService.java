@@ -7,6 +7,7 @@ import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepositor
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
+import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,5 +42,28 @@ public class ReceiptEnrichmentService {
             );
         }
         return result;
+    }
+
+    /**
+     * Category-only Enrichment (Reclassify): returns just the Category name chosen from the current
+     * description, items and raw text. Does not persist anything and never returns other fields.
+     */
+    public String reclassify(UserApp user, String description, List<SpendItem> items, String rawText) {
+        aiUsageService.validateBedrockUsage(user);
+        List<ClassificationRule> rules = classificationRuleRepository
+            .findByUserIdOrderByCreatedAtAsc(user.getId());
+        List<ClassifiedSpend.ClassifiedItem> classifiedItems = items.stream()
+            .map(item -> new ClassifiedSpend.ClassifiedItem(item.getDescription(), item.getAmount()))
+            .toList();
+        ClassifiedSpendResult result = classifierService.classifyCategory(
+            description, classifiedItems, rawText, categoryRepository.findAll(), rules
+        );
+        aiUsageService.recordBedrockUsage(user, result.inputTokens(), result.outputTokens());
+
+        String category = result.classified().category();
+        if (category == null) {
+            throw new ReceiptProcessingException("Classification returned no category");
+        }
+        return category;
     }
 }

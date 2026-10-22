@@ -49,9 +49,22 @@ public class BedrockClassificationService {
         List<Category> categories,
         List<ClassificationRule> rules
     ) {
-        try {
-            String prompt = ClassificationPrompt.buildPrompt(ocrText, categories, rules);
+        return invoke(ClassificationPrompt.buildPrompt(ocrText, categories, rules));
+    }
 
+    /** Reclassify: only the category of the result is meaningful, the other fields are empty. */
+    public ClassifiedSpendResult classifyCategory(
+        String description,
+        List<ClassifiedSpend.ClassifiedItem> items,
+        String ocrText,
+        List<Category> categories,
+        List<ClassificationRule> rules
+    ) {
+        return invoke(ClassificationPrompt.buildCategoryOnlyPrompt(description, items, ocrText, categories, rules));
+    }
+
+    private ClassifiedSpendResult invoke(String prompt) {
+        try {
             if (isDev()) {
                 log.debug("bedrock_request_prompt modelId={}\n{}", properties.modelId(), prompt);
             }

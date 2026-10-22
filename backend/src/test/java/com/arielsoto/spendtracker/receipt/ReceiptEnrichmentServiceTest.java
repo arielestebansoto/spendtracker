@@ -29,6 +29,7 @@ import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepositor
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
+import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.user.UserApp;
 
 @ExtendWith(MockitoExtension.class)
@@ -90,5 +91,47 @@ class ReceiptEnrichmentServiceTest {
         assertThrows(AiUsageLimitExceededException.class, () -> enrichmentService.enrich(user, "TOTAL 10"));
 
         verify(classifierService, never()).classify(any(), any(), any());
+    }
+
+    @Test
+    void reclassify_asksForTheCategoryOnlyFromDescriptionItemsAndRawTextAndRecordsUsage() {
+        List<ClassificationRule> rules = List.of(new ClassificationRule());
+        List<Category> categories = List.of(Category.builder().name("Comida").description("Food").build());
+        List<SpendItem> items = List.of(SpendItem.builder().description("Milk").amount(new BigDecimal("4.50")).build());
+        ClassifiedSpend onlyCategory = new ClassifiedSpend(null, "Comida", null, null, List.of());
+        when(classificationRuleRepository.findByUserIdOrderByCreatedAtAsc(user.getId())).thenReturn(rules);
+        when(categoryRepository.findAll()).thenReturn(categories);
+        when(classifierService.classifyCategory(
+            "Edited", List.of(new ClassifiedSpend.ClassifiedItem("Milk", new BigDecimal("4.50"))),
+            "TOTAL 10", categories, rules))
+            .thenReturn(new ClassifiedSpendResult(onlyCategory, 80, 5, Map.of("usage", "raw")));
+
+        String category = enrichmentService.reclassify(user, "Edited", items, "TOTAL 10");
+
+        assertEquals("Comida", category);
+        verify(aiUsageService).validateBedrockUsage(user);
+        verify(aiUsageService).recordBedrockUsage(user, 80, 5);
+    }
+
+    @Test
+    void reclassify_failsWhenNoCategoryCameBack() {
+        when(classificationRuleRepository.findByUserIdOrderByCreatedAtAsc(user.getId())).thenReturn(List.of());
+        when(categoryRepository.findAll()).thenReturn(List.of());
+        when(classifierService.classifyCategory(any(), any(), any(), any(), any()))
+            .thenReturn(new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 80, 5, null));
+
+        assertThrows(ReceiptProcessingException.class,
+            () -> enrichmentService.reclassify(user, "Edited", List.of(), "TOTAL 10"));
+    }
+
+    @Test
+    void reclassify_doesNotCallBedrockWhenQuotaExceeded() {
+        doThrow(new AiUsageLimitExceededException("BEDROCK", "limit"))
+            .when(aiUsageService).validateBedrockUsage(user);
+
+        assertThrows(AiUsageLimitExceededException.class,
+            () -> enrichmentService.reclassify(user, "Edited", List.of(), "TOTAL 10"));
+
+        verify(classifierService, never()).classifyCategory(any(), any(), any(), any(), any());
     }
 }

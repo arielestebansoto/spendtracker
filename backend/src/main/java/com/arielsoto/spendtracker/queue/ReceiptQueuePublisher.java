@@ -11,4 +11,7 @@ public interface ReceiptQueuePublisher {
     void publishForExtraction(UUID spendId);
 
     void publishForEnrichment(UUID spendId);
+
+    /** Enrichment that only recalculates the Category (Reclassify), see {@link SpendMessage}. */
+    void publishForCategoryOnlyEnrichment(UUID spendId);
 }

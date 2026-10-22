@@ -138,6 +138,17 @@ public class SpendController {
         );
     }
 
+    @PostMapping("/{id}/reclassify")
+    public SpendDetailResponse reclassify(
+        @PathVariable("id") UUID id,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        return spendService.reclassify(id, user.getId());
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(

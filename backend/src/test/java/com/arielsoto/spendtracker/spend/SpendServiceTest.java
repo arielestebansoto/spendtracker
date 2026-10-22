@@ -1,8 +1,11 @@
 package com.arielsoto.spendtracker.spend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +17,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -22,13 +27,16 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
+import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.user.UserApp;
 
@@ -46,6 +54,9 @@ class SpendServiceTest {
 
     @Mock
     private SpendReceiptStorageService storageService;
+
+    @Mock
+    private ReceiptQueuePublisher queuePublisher;
 
     @InjectMocks
     private SpendService spendService;
@@ -160,5 +171,126 @@ class SpendServiceTest {
 
         verify(spendRepository).delete(spend);
         verify(storageService, never()).deleteFile(any());
+    }
+
+    private Spend spendWithStatus(String receiptKey, SpendStatus status) {
+        Spend spend = buildSpend(receiptKey);
+        spend.setCategory(category());
+        spend.setStatus(status);
+        return spend;
+    }
+
+    private void owns(Spend spend) {
+        when(spendRepository.findByIdAndUserId(spend.getId(), spend.getUser().getId()))
+            .thenReturn(Optional.of(spend));
+    }
+
+    private UpdateSpendRequest updateRequest() {
+        return new UpdateSpendRequest(null, "Edited", new BigDecimal("99.00"), START);
+    }
+
+    // ---- edit locking ----
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSING"})
+    void editIsRejectedWhileTheSpendIsInProgress(SpendStatus status) {
+        Spend spend = spendWithStatus("spends/u/s.jpg", status);
+        owns(spend);
+
+        assertThatThrownBy(() -> spendService.update(spend.getId(), updateRequest(), spend.getUser().getId()))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(409);
+        assertThat(spend.getDescription()).isNotEqualTo("Edited");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PROCESSED", "FAILED"})
+    void editIsAllowedOnceTheSpendIsNotInProgress(SpendStatus status) {
+        Spend spend = spendWithStatus("spends/u/s.jpg", status);
+        owns(spend);
+        when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(category()));
+
+        spendService.update(spend.getId(), updateRequest(), spend.getUser().getId());
+
+        assertThat(spend.getDescription()).isEqualTo("Edited");
+        assertThat(spend.getAmount()).isEqualByComparingTo("99.00");
+    }
+
+    @ParameterizedTest
+    @EnumSource(SpendStatus.class)
+    void deleteIsAllowedInAnyStatus(SpendStatus status) {
+        Spend spend = spendWithStatus(null, status);
+        owns(spend);
+
+        spendService.delete(spend.getId(), spend.getUser().getId());
+
+        verify(spendRepository).delete(spend);
+    }
+
+    // ---- reclassify ----
+
+    @Test
+    void reclassifyMovesTheSpendBackToProcessingAndQueuesACategoryOnlyEnrichment() {
+        Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.PROCESSED);
+        owns(spend);
+
+        SpendDetailResponse response = spendService.reclassify(spend.getId(), spend.getUser().getId());
+
+        assertThat(spend.getStatus()).isEqualTo(SpendStatus.PROCESSING);
+        assertThat(response.status()).isEqualTo(SpendStatus.PROCESSING);
+        InOrder order = inOrder(spendRepository, queuePublisher);
+        order.verify(spendRepository).save(spend);
+        order.verify(queuePublisher).publishForCategoryOnlyEnrichment(spend.getId());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSING", "FAILED"})
+    void reclassifyIsRejectedUnlessTheSpendIsProcessed(SpendStatus status) {
+        Spend spend = spendWithStatus("spends/u/s.jpg", status);
+        owns(spend);
+
+        assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(409);
+        assertThat(spend.getStatus()).isEqualTo(status);
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void reclassifyIsRejectedForASpendWithoutAReceipt() {
+        Spend spend = spendWithStatus(null, SpendStatus.PROCESSED);
+        owns(spend);
+
+        assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(400);
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void reclassifyOfAnotherUsersSpendIsNotFound() {
+        UUID spendId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(spendRepository.findByIdAndUserId(spendId, userId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> spendService.reclassify(spendId, userId))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
+            .isEqualTo(404);
+    }
+
+    @Test
+    void reclassifyWhoseMessageCannotBeQueuedLeavesTheSpendProcessedAndUntouched() {
+        Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.PROCESSED);
+        owns(spend);
+        doThrow(new RuntimeException("sqs down")).when(queuePublisher).publishForCategoryOnlyEnrichment(any());
+
+        assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
+            .hasMessage("sqs down");
+
+        assertThat(spend.getStatus()).isEqualTo(SpendStatus.PROCESSED);
     }
 }
