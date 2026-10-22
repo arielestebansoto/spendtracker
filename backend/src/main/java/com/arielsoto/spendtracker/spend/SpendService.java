@@ -19,6 +19,7 @@ import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 
@@ -31,6 +32,7 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
+    private final SpendReceiptStorageService storageService;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -168,6 +170,10 @@ public class SpendService {
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
         spendRepository.delete(spend);
+
+        if (spend.getReceiptKey() != null) {
+            storageService.deleteFile(spend.getReceiptKey());
+        }
     }
 
     @Transactional
