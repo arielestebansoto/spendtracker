@@ -11,7 +11,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -24,7 +27,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.ByteArrayResource;
@@ -74,7 +76,10 @@ class ReceiptProcessingServiceTest {
     @Mock
     private ReceiptQueuePublisher queuePublisher;
 
-    @InjectMocks
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 22, 12, 0);
+
+    private final Clock clock = Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
     private ReceiptProcessingService service;
 
     private final UserApp user = UserApp.builder().id(UUID.randomUUID()).name("Test").oauthId("1").build();
@@ -85,6 +90,10 @@ class ReceiptProcessingServiceTest {
 
     @BeforeEach
     void setUp() {
+        service = new ReceiptProcessingService(
+            spendRepository, receiptMetadataRepository, categoryRepository, extractionService,
+            enrichmentService, aiUsageService, storageService, queuePublisher, clock
+        );
         // The database assigns the id on first save.
         lenient().when(spendRepository.save(any(Spend.class))).thenAnswer(call -> {
             Spend spend = call.getArgument(0);
@@ -184,6 +193,7 @@ class ReceiptProcessingServiceTest {
         ArgumentCaptor<ReceiptMetadata> saved = ArgumentCaptor.forClass(ReceiptMetadata.class);
         verify(receiptMetadataRepository).save(saved.capture());
         assertEquals("TOTAL 10", saved.getValue().getRawOcrText());
+        assertEquals(NOW, saved.getValue().getCreatedAt());
         assertEquals(spend, saved.getValue().getSpend());
         verify(queuePublisher).publishForEnrichment(spend.getId());
     }
@@ -290,6 +300,8 @@ class ReceiptProcessingServiceTest {
         assertEquals(List.of("Milk", "Bread"), spend.getItems().stream().map(SpendItem::getDescription).toList());
         assertEquals(List.of(0, 1), spend.getItems().stream().map(SpendItem::getPosition).toList());
         assertEquals(Map.of("output", "raw"), spend.getReceiptMetadata().getRawResponse());
+        assertEquals(NOW, spend.getReceiptMetadata().getClassifiedAt());
+        assertEquals(NOW, spend.getItems().get(0).getCreatedAt());
         verify(spendRepository).save(spend);
     }
 
@@ -469,7 +481,8 @@ class ReceiptProcessingServiceTest {
         spend.setSpendDate(USER_DATE);
         spend.getItems().add(SpendItem.builder().spend(spend).description("Milk").amount(new BigDecimal("4.50")).position(0).build());
         spend.setReceiptMetadata(ReceiptMetadata.builder()
-            .spend(spend).rawOcrText("TOTAL 10").rawResponse(Map.of("output", "original")).build());
+            .spend(spend).rawOcrText("TOTAL 10").rawResponse(Map.of("output", "original"))
+            .classifiedAt(LocalDateTime.of(2026, 3, 1, 10, 0)).build());
         return spend;
     }
 
@@ -490,6 +503,7 @@ class ReceiptProcessingServiceTest {
         assertEquals(USER_DATE, spend.getSpendDate());
         assertEquals(List.of("Milk"), spend.getItems().stream().map(SpendItem::getDescription).toList());
         assertEquals(Map.of("output", "original"), spend.getReceiptMetadata().getRawResponse());
+        assertEquals(NOW, spend.getReceiptMetadata().getClassifiedAt());
         verify(enrichmentService, never()).enrich(any(), any());
         verify(spendRepository).save(spend);
     }
@@ -529,6 +543,50 @@ class ReceiptProcessingServiceTest {
         assertEquals(comida, spend.getCategory());
         verifyNoInteractions(enrichmentService);
         verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void enrichment_dropsStaleDuplicateWhenTheSpendIsAlreadyEnrichedAndBeingReclassified() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        assertEquals(new BigDecimal("25.00"), spend.getAmount());
+        assertEquals("Edited by the user", spend.getDescription());
+        assertEquals(List.of("Milk"), spend.getItems().stream().map(SpendItem::getDescription).toList());
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void categoryOnly_dropsStaleMessageWhileARetriedSpendAwaitsFullEnrichment() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        assertEquals(uncategorized, spend.getCategory());
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void retriedSpendThatWasEnrichedBeforeIsEnrichedAgainInFull() {
+        Spend spend = spendBeingReclassified(SpendStatus.FAILED);
+        when(spendRepository.findByIdAndUserId(spend.getId(), user.getId())).thenReturn(Optional.of(spend));
+        when(receiptMetadataRepository.findBySpendId(spend.getId())).thenReturn(Optional.of(spend.getReceiptMetadata()));
+        when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(user, "TOTAL 10")).thenReturn(classification("Comida", null));
+
+        service.retry(user, spend.getId());
+        service.processExtraction(spend.getId(), false);
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        assertEquals(new BigDecimal("10.50"), spend.getAmount());
+        assertEquals("Supermarket", spend.getDescription());
     }
 
     @Test
@@ -574,7 +632,7 @@ class ReceiptProcessingServiceTest {
     @Test
     void categoryOnly_withoutStoredRawTextRestoresProcessedOnTheLastAttempt() {
         Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
-        spend.setReceiptMetadata(null);
+        spend.getReceiptMetadata().setRawOcrText(null);
 
         assertThrows(ReceiptProcessingException.class, () -> service.processCategoryOnlyEnrichment(spend.getId(), true));
 

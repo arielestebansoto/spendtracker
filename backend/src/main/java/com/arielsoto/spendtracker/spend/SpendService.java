@@ -45,17 +45,7 @@ public class SpendService {
             .findByIdAndUserId(id, userId)
             .orElseThrow();
 
-        return new SpendDetailResponse(
-            spend.getId(),
-            spend.getCategory().getId(),
-            spend.getCategory().getName(),
-            spend.getDescription(),
-            spend.getAmount(),
-            spend.getSpendDate(),
-            spend.getCreatedAt(),
-            spend.receiptUrl(),
-            spend.getStatus()
-        );
+        return toDetailResponse(spend);
     }
 
     public Page<SpendListItemResponse> findAllByUserId(
@@ -64,16 +54,7 @@ public class SpendService {
     ) {
         return spendRepository
             .findAllByUserId(userId, pageable)
-            .map( s -> {
-                return new SpendListItemResponse(
-                    s.getId(),
-                    s.getCategory().getName(),
-                    s.getAmount(),
-                    s.getSpendDate(),
-                    s.getDescription(),
-                    s.getStatus()
-                );
-            });
+            .map(this::toListItemResponse);
     }
 
     public Page<SpendListItemResponse> findByFilters(
@@ -93,14 +74,7 @@ public class SpendService {
 
         return spendRepository
             .findAll(spec, pageable)
-            .map(s -> new SpendListItemResponse(
-                s.getId(),
-                s.getCategory().getName(),
-                s.getAmount(),
-                s.getSpendDate(),
-                s.getDescription(),
-                    s.getStatus()
-            ));
+            .map(this::toListItemResponse);
     }
 
     public CreateSpendResponse create(
@@ -152,17 +126,7 @@ public class SpendService {
         spend.setAmount(request.amount());
         spend.setSpendDate(request.spendDate());
 
-        return new SpendDetailResponse(
-            spend.getId(),
-            spend.getCategory().getId(),
-            spend.getCategory().getName(),
-            spend.getDescription(),
-            spend.getAmount(),
-            spend.getSpendDate(),
-            spend.getCreatedAt(),
-            spend.receiptUrl(),
-            spend.getStatus()
-        );
+        return toDetailResponse(spend);
     }
 
     /**
@@ -197,17 +161,7 @@ public class SpendService {
             throw e;
         }
 
-        return new SpendDetailResponse(
-            spend.getId(),
-            spend.getCategory().getId(),
-            spend.getCategory().getName(),
-            spend.getDescription(),
-            spend.getAmount(),
-            spend.getSpendDate(),
-            spend.getCreatedAt(),
-            spend.receiptUrl(),
-            spend.getStatus()
-        );
+        return toDetailResponse(spend);
     }
 
     @Transactional
@@ -260,18 +214,36 @@ public class SpendService {
                 userId, SpendStatus.PROCESSED, startDate, endDate,
                 PageRequest.of(0, recentLimit)
             )
-            .map(s -> new SpendListItemResponse(
-                s.getId(),
-                s.getCategory().getName(),
-                s.getAmount(),
-                s.getSpendDate(),
-                s.getDescription(),
-                    s.getStatus()
-            ))
+            .map(this::toListItemResponse)
             .getContent();
 
         return new DashboardSummaryResponse(
             total, count, average, recentSpends
+        );
+    }
+
+    private SpendDetailResponse toDetailResponse(Spend spend) {
+        return new SpendDetailResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getCreatedAt(),
+            spend.receiptUrl(),
+            spend.getStatus()
+        );
+    }
+
+    private SpendListItemResponse toListItemResponse(Spend spend) {
+        return new SpendListItemResponse(
+            spend.getId(),
+            spend.getCategory().getName(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getDescription(),
+            spend.getStatus()
         );
     }
 

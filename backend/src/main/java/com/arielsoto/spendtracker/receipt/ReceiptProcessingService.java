@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -45,6 +46,7 @@ public class ReceiptProcessingService {
     private final AiUsageService aiUsageService;
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
+    private final Clock clock;
 
     /**
      * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
@@ -158,40 +160,14 @@ public class ReceiptProcessingService {
      * Spend's amount, date, description, items and Category, keeps the full Bedrock response and
      * marks the Spend PROCESSED. The AI quota is checked again here.
      *
-     * A message for a missing Spend, or one not in PROCESSING, is a duplicate or stale delivery
-     * and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
+     * A message for a missing Spend, one not in PROCESSING, or one already enriched (a late duplicate
+     * of a message that was already handled, now seen while a Reclassify runs) is a duplicate or
+     * stale delivery and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
      * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processEnrichment(UUID spendId, boolean lastAttempt) {
-        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
-            log.info("receipt_enrichment_dropped spendId={} status={}",
-                spendId, spend == null ? "MISSING" : spend.getStatus());
-            return;
-        }
-
-        try {
-            ReceiptMetadata metadata = spend.getReceiptMetadata();
-            if (metadata == null || metadata.getRawOcrText() == null) {
-                throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
-            }
-            ClassifiedSpendResult result = enrichmentService.enrich(spend.getUser(), metadata.getRawOcrText());
-            applyEnrichment(spend, result);
-            spendRepository.save(spend);
-        } catch (AiUsageLimitExceededException e) {
-            log.warn("receipt_enrichment_ai_limit_exceeded spendId={} resourceType={}",
-                spendId, e.getResourceType());
-            spend.setStatus(SpendStatus.FAILED);
-            spendRepository.save(spend);
-        } catch (RuntimeException e) {
-            log.error("receipt_enrichment_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
-            if (lastAttempt) {
-                spend.setStatus(SpendStatus.FAILED);
-                spendRepository.save(spend);
-            }
-            throw e;
-        }
+        runEnrichment(spendId, lastAttempt, false);
     }
 
     /** Routes an enrichment queue message to full or category-only Enrichment. */
@@ -208,48 +184,82 @@ public class ReceiptProcessingService {
      * the Category from the current description, items and raw text; amount, date, description,
      * items and the stored Bedrock response are never touched.
      *
-     * Reclassify puts a PROCESSED Spend back in PROCESSING, so any other status is a duplicate or
-     * stale message and is dropped. Because the Spend already holds good (possibly user-edited) data,
+     * Reclassify puts an enriched PROCESSED Spend back in PROCESSING, so any other status, or a Spend
+     * not enriched yet (for example a Retry awaiting full Enrichment), is a duplicate or stale message
+     * and is dropped. Because the Spend already holds good (possibly user-edited) data,
      * giving up never marks it FAILED: on the last attempt, or when the AI quota is gone, it goes
      * back to PROCESSED with its old Category. Before the last attempt it stays PROCESSING and the
      * failure is rethrown so SQS redelivers.
      */
     public void processCategoryOnlyEnrichment(UUID spendId, boolean lastAttempt) {
-        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
-            log.info("receipt_category_only_dropped spendId={} status={}",
-                spendId, spend == null ? "MISSING" : spend.getStatus());
+        runEnrichment(spendId, lastAttempt, true);
+    }
+
+    // Shared by full and category-only Enrichment: they differ in what they apply and in how they give up.
+    private void runEnrichment(UUID spendId, boolean lastAttempt, boolean categoryOnly) {
+        String event = categoryOnly ? "receipt_category_only" : "receipt_enrichment";
+        Spend spend = findForEnrichment(spendId, categoryOnly, event);
+        if (spend == null) {
             return;
         }
 
         try {
-            ReceiptMetadata metadata = spend.getReceiptMetadata();
-            if (metadata == null || metadata.getRawOcrText() == null) {
-                throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
+            String rawText = rawTextOf(spend);
+            if (categoryOnly) {
+                applyCategoryOnly(spend, rawText);
+            } else {
+                applyEnrichment(spend, enrichmentService.enrich(spend.getUser(), rawText));
             }
-            String category = enrichmentService.reclassify(
-                spend.getUser(), spend.getDescription(), spend.getItems(), metadata.getRawOcrText()
-            );
-            spend.setCategory(categoryFor(category));
-            metadata.setClassifiedAt(LocalDateTime.now());
-            spend.setStatus(SpendStatus.PROCESSED);
             spendRepository.save(spend);
         } catch (AiUsageLimitExceededException e) {
-            log.warn("receipt_category_only_ai_limit_exceeded spendId={} resourceType={}",
-                spendId, e.getResourceType());
-            restoreProcessed(spend);
+            log.warn(event + "_ai_limit_exceeded spendId={} resourceType={}", spendId, e.getResourceType());
+            giveUp(spend, categoryOnly);
         } catch (RuntimeException e) {
-            log.error("receipt_category_only_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            log.error(event + "_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
             if (lastAttempt) {
-                restoreProcessed(spend);
+                giveUp(spend, categoryOnly);
             }
             throw e;
         }
     }
 
-    private void restoreProcessed(Spend spend) {
+    // Returns the Spend if the message is current, or null (logged) for a missing, duplicate or stale one.
+    private Spend findForEnrichment(UUID spendId, boolean categoryOnly, String event) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend != null && spend.getStatus() == SpendStatus.PROCESSING && isEnriched(spend) == categoryOnly) {
+            return spend;
+        }
+        log.info(event + "_dropped spendId={} status={}", spendId, spend == null ? "MISSING" : spend.getStatus());
+        return null;
+    }
+
+    private String rawTextOf(Spend spend) {
+        ReceiptMetadata metadata = spend.getReceiptMetadata();
+        if (metadata == null || metadata.getRawOcrText() == null) {
+            throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
+        }
+        return metadata.getRawOcrText();
+    }
+
+    private void applyCategoryOnly(Spend spend, String rawText) {
+        String category = enrichmentService.reclassify(
+            spend.getUser(), spend.getDescription(), spend.getItems(), rawText
+        );
+        spend.setCategory(categoryFor(category));
+        spend.getReceiptMetadata().setClassifiedAt(LocalDateTime.now(clock));
         spend.setStatus(SpendStatus.PROCESSED);
+    }
+
+    // A Spend that was never enriched is FAILED; an enriched one keeps its data and goes back to PROCESSED.
+    private void giveUp(Spend spend, boolean categoryOnly) {
+        spend.setStatus(categoryOnly ? SpendStatus.PROCESSED : SpendStatus.FAILED);
         spendRepository.save(spend);
+    }
+
+    // Full Enrichment sets classifiedAt, and Extraction clears it, so it tells which kind of message is current.
+    private boolean isEnriched(Spend spend) {
+        ReceiptMetadata metadata = spend.getReceiptMetadata();
+        return metadata != null && metadata.getClassifiedAt() != null;
     }
 
     // Everything is set on the loaded Spend and saved once, so the data and PROCESSED land together.
@@ -263,7 +273,7 @@ public class ReceiptProcessingService {
         spend.setCategory(categoryFor(classified.category()));
 
         spend.getItems().clear();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         List<ClassifiedSpend.ClassifiedItem> items = classified.items();
         for (int position = 0; position < items.size(); position++) {
             spend.getItems().add(SpendItem.builder()
@@ -299,10 +309,13 @@ public class ReceiptProcessingService {
         ReceiptMetadata metadata = receiptMetadataRepository.findBySpendId(spend.getId())
             .orElseGet(() -> ReceiptMetadata.builder()
                 .spend(spend)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(clock))
                 .build());
         metadata.setRawOcrText(ocrResult.rawText());
         metadata.setOcrConfidence(ocrResult.confidence());
+        // A Retry re-runs Extraction, so any earlier Enrichment result no longer applies.
+        metadata.setClassifiedAt(null);
+        metadata.setRawResponse(null);
         receiptMetadataRepository.save(metadata);
     }
 
