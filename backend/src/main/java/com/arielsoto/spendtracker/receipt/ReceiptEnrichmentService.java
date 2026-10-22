@@ -38,7 +38,7 @@ public class ReceiptEnrichmentService {
         ClassifiedSpend classified = result.classified();
         if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
             throw new ReceiptProcessingException(
-                "Classification returned no amount — model could not extract data from receipt"
+                "Enrichment returned no amount — model could not extract data from receipt"
             );
         }
         return result;
@@ -62,7 +62,7 @@ public class ReceiptEnrichmentService {
 
         String category = result.classified().category();
         if (category == null) {
-            throw new ReceiptProcessingException("Classification returned no category");
+            throw new ReceiptProcessingException("Enrichment returned no category");
         }
         return category;
     }
