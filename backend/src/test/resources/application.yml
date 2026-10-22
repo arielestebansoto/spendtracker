@@ -12,6 +12,12 @@ app:
       region: us-east-1
       access-key-id: test-key
       secret-access-key: test-secret
+  sqs:
+    region: us-east-1
+    receipt-extraction-queue-url: http://localhost/test-receipt-extraction
+    spend-enrichment-queue-url: http://localhost/test-spend-enrichment
+    max-receive-count: 3
+    polling-enabled: false
   ai-usage:
     global:
       analyze-expense-pages: 100

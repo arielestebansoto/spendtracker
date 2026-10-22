@@ -27,9 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
-import com.arielsoto.spendtracker.receipt.ReceiptProcessingException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
-import com.arielsoto.spendtracker.receipt.SpendProcessingResult;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
@@ -159,7 +157,6 @@ public class SpendController {
     @PostMapping(value = "/from-receipt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> createFromReceipt(
         @RequestParam("receipt") MultipartFile file,
-        @RequestParam(value = "categoryId", required = false) UUID categoryId,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
@@ -173,18 +170,16 @@ public class SpendController {
         );
 
         try {
-            SpendProcessingResult result = receiptProcessingService.processReceipt(
-                user, file, categoryId
-            );
+            Spend spend = receiptProcessingService.uploadReceipt(user, file);
 
             return ResponseEntity.ok(new CreateSpendResponse(
-                result.spend().getId(),
-                result.spend().getCategory().getId(),
-                result.spend().getCategory().getName(),
-                result.spend().getDescription(),
-                result.spend().getAmount(),
-                result.spend().getSpendDate(),
-                result.spend().getStatus()
+                spend.getId(),
+                spend.getCategory().getId(),
+                spend.getCategory().getName(),
+                spend.getDescription(),
+                spend.getAmount(),
+                spend.getSpendDate(),
+                spend.getStatus()
             ));
         } catch (AiUsageLimitExceededException e) {
             log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",
@@ -193,14 +188,6 @@ public class SpendController {
                 .body(Map.of(
                     "error", e.getMessage(),
                     "resourceType", e.getResourceType()
-                ));
-        } catch (ReceiptProcessingException e) {
-            log.error("api_create_spend_from_receipt_failed userId={} reason={}",
-                user.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of(
-                    "error", "We cannot process this receipt right now. Please try again later.",
-                    "details", e.getMessage()
                 ));
         }
     }
