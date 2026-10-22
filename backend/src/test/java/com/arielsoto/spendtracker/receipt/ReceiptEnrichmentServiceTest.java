@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.aiusage.AiUsageService;
+import com.arielsoto.spendtracker.category.Category;
+import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
 import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepository;
 import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
@@ -38,6 +41,9 @@ class ReceiptEnrichmentServiceTest {
     private ClassificationRuleRepository classificationRuleRepository;
 
     @Mock
+    private CategoryRepository categoryRepository;
+
+    @Mock
     private AiUsageService aiUsageService;
 
     @InjectMocks
@@ -50,14 +56,16 @@ class ReceiptEnrichmentServiceTest {
     }
 
     @Test
-    void enrich_classifiesRawTextWithUserRulesAndRecordsUsage() {
+    void enrich_classifiesRawTextWithCategoriesAndUserRulesAndRecordsUsage() {
         List<ClassificationRule> rules = List.of(new ClassificationRule());
-        ClassifiedSpend expected = classified(BigDecimal.TEN);
+        List<Category> categories = List.of(Category.builder().name("Comida").description("Food").build());
+        ClassifiedSpendResult expected = new ClassifiedSpendResult(
+            classified(BigDecimal.TEN), 100, 20, Map.of("usage", "raw"));
         when(classificationRuleRepository.findByUserIdOrderByCreatedAtAsc(user.getId())).thenReturn(rules);
-        when(classifierService.classify("TOTAL 10", rules))
-            .thenReturn(new ClassifiedSpendResult(expected, 100, 20));
+        when(categoryRepository.findAll()).thenReturn(categories);
+        when(classifierService.classify("TOTAL 10", categories, rules)).thenReturn(expected);
 
-        ClassifiedSpend result = enrichmentService.enrich(user, "TOTAL 10");
+        ClassifiedSpendResult result = enrichmentService.enrich(user, "TOTAL 10");
 
         assertEquals(expected, result);
         verify(aiUsageService).validateBedrockUsage(user);
@@ -67,8 +75,9 @@ class ReceiptEnrichmentServiceTest {
     @Test
     void enrich_failsWhenNoAmountWasExtracted() {
         when(classificationRuleRepository.findByUserIdOrderByCreatedAtAsc(user.getId())).thenReturn(List.of());
-        when(classifierService.classify("noise", List.of()))
-            .thenReturn(new ClassifiedSpendResult(classified(BigDecimal.ZERO), 100, 20));
+        when(categoryRepository.findAll()).thenReturn(List.of());
+        when(classifierService.classify("noise", List.of(), List.of()))
+            .thenReturn(new ClassifiedSpendResult(classified(BigDecimal.ZERO), 100, 20, null));
 
         assertThrows(ReceiptProcessingException.class, () -> enrichmentService.enrich(user, "noise"));
     }
@@ -80,6 +89,6 @@ class ReceiptEnrichmentServiceTest {
 
         assertThrows(AiUsageLimitExceededException.class, () -> enrichmentService.enrich(user, "TOTAL 10"));
 
-        verify(classifierService, never()).classify(any(), any());
+        verify(classifierService, never()).classify(any(), any(), any());
     }
 }

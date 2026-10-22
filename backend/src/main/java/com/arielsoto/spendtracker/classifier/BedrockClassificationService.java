@@ -1,6 +1,8 @@
 package com.arielsoto.spendtracker.classifier;
 
+import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -18,6 +20,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class BedrockClassificationService {
 
@@ -41,13 +44,13 @@ public class BedrockClassificationService {
         return Arrays.asList(environment.getActiveProfiles()).contains("dev");
     }
 
-    public ClassifiedSpendResult classify(String ocrText) {
-        return classify(ocrText, List.of());
-    }
-
-    public ClassifiedSpendResult classify(String ocrText, List<ClassificationRule> rules) {
+    public ClassifiedSpendResult classify(
+        String ocrText,
+        List<Category> categories,
+        List<ClassificationRule> rules
+    ) {
         try {
-            String prompt = ClassificationPrompt.buildPrompt(ocrText, rules);
+            String prompt = ClassificationPrompt.buildPrompt(ocrText, categories, rules);
 
             if (isDev()) {
                 log.debug("bedrock_request_prompt modelId={}\n{}", properties.modelId(), prompt);
@@ -87,13 +90,14 @@ public class BedrockClassificationService {
             return result;
         } catch (Exception e) {
             log.error("Bedrock classification failed", e);
-            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0);
+            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0, null);
         }
     }
 
     private ClassifiedSpendResult parseResponse(String responseText) {
         try {
             JsonNode root = objectMapper.readTree(responseText);
+            Map<String, Object> rawResponse = objectMapper.convertValue(root, new TypeReference<>() {});
 
             long inputTokens = 0;
             long outputTokens = 0;
@@ -109,14 +113,14 @@ public class BedrockClassificationService {
                 JsonNode content = output.get("message").get("content");
                 if (content.isArray() && !content.isEmpty()) {
                     String text = content.get(0).get("text").asText();
-                    return new ClassifiedSpendResult(parseClassificationJson(text), inputTokens, outputTokens);
+                    return new ClassifiedSpendResult(parseClassificationJson(text), inputTokens, outputTokens, rawResponse);
                 }
             }
 
-            return new ClassifiedSpendResult(parseClassificationJson(responseText), inputTokens, outputTokens);
+            return new ClassifiedSpendResult(parseClassificationJson(responseText), inputTokens, outputTokens, rawResponse);
         } catch (Exception e) {
             log.error("Failed to parse Bedrock response", e);
-            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0);
+            return new ClassifiedSpendResult(new ClassifiedSpend(null, null, null, null, List.of()), 0, 0, null);
         }
     }
 

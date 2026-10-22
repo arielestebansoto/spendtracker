@@ -41,4 +41,20 @@ class SqsConfig {
             processingService::processExtraction
         );
     }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "app.sqs", name = "polling-enabled", havingValue = "true")
+    SqsQueuePoller enrichmentPoller(
+        SqsClient sqsClient,
+        SqsProperties properties,
+        ReceiptProcessingService processingService
+    ) {
+        return new SqsQueuePoller(
+            "spend-enrichment",
+            sqsClient,
+            properties.spendEnrichmentQueueUrl(),
+            properties.maxReceiveCount(),
+            processingService::processEnrichment
+        );
+    }
 }
