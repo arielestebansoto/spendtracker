@@ -78,6 +78,11 @@ app:
     spend-enrichment-queue-url: ${SQS_SPEND_ENRICHMENT_QUEUE_URL:}
     max-receive-count: 3
     polling-enabled: true
+  stuck-spend-cleanup:
+    # Spends PENDING or PROCESSING for longer than this are marked FAILED.
+    threshold: ${STUCK_SPEND_THRESHOLD:PT15M}
+    # Delay between cleanup runs, measured from the end of the previous run.
+    interval: ${STUCK_SPEND_CLEANUP_INTERVAL:PT5M}
   bedrock:
     model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
   ai-usage:
