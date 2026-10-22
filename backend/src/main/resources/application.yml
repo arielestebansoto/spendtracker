@@ -72,6 +72,12 @@ app:
       region: ${AWS_REGION:}
       access-key-id: ${AWS_ACCESS_KEY_ID:}
       secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+  sqs:
+    region: ${AWS_REGION:}
+    receipt-extraction-queue-url: ${SQS_RECEIPT_EXTRACTION_QUEUE_URL:}
+    spend-enrichment-queue-url: ${SQS_SPEND_ENRICHMENT_QUEUE_URL:}
+    max-receive-count: 3
+    polling-enabled: true
   bedrock:
     model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
   ai-usage:

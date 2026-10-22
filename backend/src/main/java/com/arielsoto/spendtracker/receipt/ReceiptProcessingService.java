@@ -1,11 +1,15 @@
 package com.arielsoto.spendtracker.receipt;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
-import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
+import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.spend.*;
+import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
+import com.arielsoto.spendtracker.spend.Spend;
+import com.arielsoto.spendtracker.spend.SpendRepository;
+import com.arielsoto.spendtracker.spend.SpendStatus;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
@@ -13,224 +17,130 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
+/**
+ * Drives a Spend created from a Receipt through the asynchronous pipeline.
+ * Upload runs in the HTTP request; the Extraction stage runs in a queue worker.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReceiptProcessingService {
 
     private final SpendRepository spendRepository;
-    private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
     private final ReceiptExtractionService extractionService;
-    private final ReceiptEnrichmentService enrichmentService;
-    // Storage is optional - may not be configured in dev
-    private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
+    private final AiUsageService aiUsageService;
+    private final SpendReceiptStorageService storageService;
+    private final ReceiptQueuePublisher queuePublisher;
 
-    public SpendProcessingResult processReceipt(
-        UserApp user,
-        MultipartFile file,
-        UUID categoryId
-    ) {
-        log.info(
-            "receipt_processing_start userId={} fileName={} fileSize={} contentType={} categoryId={}",
-            user.getId(),
-            file.getOriginalFilename(),
-            file.getSize(),
-            file.getContentType(),
-            categoryId
-        );
-
-        long startTime = System.currentTimeMillis();
-
+    /**
+     * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
+     * provisional values and queues it for Extraction. Nothing is created if validation fails.
+     */
+    public Spend uploadReceipt(UserApp user, MultipartFile file) {
         ReceiptValidator.validate(file);
-
-        Category category = resolveCategory(categoryId);
+        aiUsageService.validateAndPickStrategy(user);
+        aiUsageService.validateBedrockUsage(user);
 
         Spend spend = Spend.builder()
             .user(user)
-            .category(category)
+            .category(uncategorized())
             .description("Processing receipt...")
             .amount(BigDecimal.ZERO)
             .spendDate(LocalDate.now())
-            .status(SpendStatus.PROCESSING)
+            .status(SpendStatus.PENDING)
             .build();
         spend = spendRepository.save(spend);
 
-        StoredFile storedFile = null;
-
         try {
-            // Step 1: Store file in S3
-            long storageStart = System.currentTimeMillis();
-            storedFile = storageService.store(user, spend.getId(), file);
+            StoredFile storedFile = storageService.store(user, spend.getId(), file);
             spend.setReceiptKey(storedFile.key());
             spend.setReceiptContentType(storedFile.contentType());
             spend = spendRepository.save(spend);
-            log.info(
-                "receipt_stored userId={} spendId={} s3Key={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                System.currentTimeMillis() - storageStart
-            );
+        } catch (RuntimeException e) {
+            spendRepository.delete(spend);
+            throw e;
+        }
 
-            // Step 2: Extraction (image to raw text)
-            long ocrStart = System.currentTimeMillis();
+        try {
+            queuePublisher.publishForExtraction(spend.getId());
+        } catch (RuntimeException e) {
+            log.error("receipt_upload_publish_failed userId={} spendId={}", user.getId(), spend.getId(), e);
+            spend.setStatus(SpendStatus.FAILED);
+            spend = spendRepository.save(spend);
+        }
+
+        log.info("receipt_uploaded userId={} spendId={} status={}", user.getId(), spend.getId(), spend.getStatus());
+        return spend;
+    }
+
+    /**
+     * Extraction stage, run by the extraction queue worker. Moves the Spend to PROCESSING, reads
+     * the image into raw text, stores it and queues the Spend for Enrichment.
+     *
+     * A message for a missing Spend, or one not in PENDING, is a duplicate or stale delivery and
+     * is dropped. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
+     * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
+     * Running out of AI quota is not retried: SQS cannot fix it.
+     */
+    public void processExtraction(UUID spendId, boolean lastAttempt) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend == null || spend.getStatus() != SpendStatus.PENDING) {
+            log.info("receipt_extraction_dropped spendId={} status={}",
+                spendId, spend == null ? "MISSING" : spend.getStatus());
+            return;
+        }
+
+        spend.setStatus(SpendStatus.PROCESSING);
+        spendRepository.save(spend);
+
+        try {
             OcrResult ocrResult = extractionService.extract(
-                user, spend.getId(), file.getBytes(), file.getContentType()
+                spend.getUser(), spendId, loadImage(spend), spend.getReceiptContentType()
             );
-            log.info(
-                "receipt_extraction_complete userId={} spendId={} s3Key={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                System.currentTimeMillis() - ocrStart
-            );
-
-            // Step 3: Enrichment (raw text to structured result)
-            long classifyStart = System.currentTimeMillis();
-            ClassifiedSpend classified = enrichmentService.enrich(user, ocrResult.rawText());
-            log.info(
-                "receipt_classification_success userId={} spendId={} s3Key={} category={} totalAmount={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                classified.category(),
-                classified.amount(),
-                System.currentTimeMillis() - classifyStart
-            );
-
-            // Step 4: Save full spend
-            SpendProcessingResult result = saveClassifiedSpend(
-                user, spend, category, ocrResult, classified
-            );
-
-            log.info(
-                "receipt_processing_complete userId={} spendId={} status={} totalMs={}",
-                user.getId(),
-                result.spend().getId(),
-                result.status(),
-                System.currentTimeMillis() - startTime
-            );
-
-            return result;
-
+            saveRawText(spend, ocrResult);
+            queuePublisher.publishForEnrichment(spendId);
         } catch (AiUsageLimitExceededException e) {
-            log.warn("receipt_processing_ai_limit_exceeded userId={} spendId={} resourceType={}",
-                user.getId(), spend.getId(), e.getResourceType());
-            rollback(user, spend, storedFile);
+            log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
+                spendId, e.getResourceType());
+            spend.setStatus(SpendStatus.FAILED);
+            spendRepository.save(spend);
+        } catch (RuntimeException e) {
+            log.error("receipt_extraction_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            spend.setStatus(lastAttempt ? SpendStatus.FAILED : SpendStatus.PENDING);
+            spendRepository.save(spend);
             throw e;
-        } catch (ReceiptProcessingException e) {
-            log.error("receipt_processing_failed userId={} spendId={} reason={}",
-                user.getId(), spend.getId(), e.getMessage());
-            rollback(user, spend, storedFile);
-            throw e;
-        } catch (Exception e) {
-            log.error("receipt_processing_failed userId={} spendId={}",
-                user.getId(), spend.getId(), e);
-            rollback(user, spend, storedFile);
-            throw new ReceiptProcessingException(
-                "We cannot process this receipt right now. Please try again later.", e
-            );
         }
     }
 
-    private SpendProcessingResult saveClassifiedSpend(
-        UserApp user,
-        Spend spend,
-        Category category,
-        OcrResult ocrResult,
-        ClassifiedSpend classified
-    ) {
-        Category resolvedCategory = category;
-        if (classified.category() != null) {
-            resolvedCategory = categoryRepository
-                .findByName(classified.category())
-                .orElse(category);
+    private byte[] loadImage(Spend spend) {
+        try {
+            return storageService.getResource(spend.getReceiptKey()).getContentAsByteArray();
+        } catch (IOException e) {
+            throw new ReceiptProcessingException("Cannot read the receipt image", e);
         }
+    }
 
-        spend.setCategory(resolvedCategory);
-        spend.setAmount(classified.amount());
-        spend.setSpendDate(
-            classified.date() != null ? classified.date() : LocalDate.now()
-        );
-        spend.setDescription(
-            classified.description() != null ? classified.description() : "Receipt"
-        );
-        spend.setStatus(SpendStatus.PROCESSED);
-        spend = spendRepository.save(spend);
-
-        ReceiptMetadata metadata = ReceiptMetadata.builder()
-            .spend(spend)
-            .rawOcrText(ocrResult.rawText())
-            .ocrConfidence(ocrResult.confidence())
-            .classifiedAt(LocalDateTime.now())
-            .createdAt(LocalDateTime.now())
-            .build();
+    private void saveRawText(Spend spend, OcrResult ocrResult) {
+        ReceiptMetadata metadata = receiptMetadataRepository.findBySpendId(spend.getId())
+            .orElseGet(() -> ReceiptMetadata.builder()
+                .spend(spend)
+                .createdAt(LocalDateTime.now())
+                .build());
+        metadata.setRawOcrText(ocrResult.rawText());
+        metadata.setOcrConfidence(ocrResult.confidence());
         receiptMetadataRepository.save(metadata);
-
-        List<SpendItem> items = new ArrayList<>();
-        if (classified.items() != null && !classified.items().isEmpty()) {
-            int position = 0;
-            for (ClassifiedSpend.ClassifiedItem item : classified.items()) {
-                SpendItem spendItem = SpendItem.builder()
-                    .spend(spend)
-                    .description(item.description())
-                    .amount(item.amount())
-                    .position(position++)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-                items.add(spendItem);
-            }
-            spendItemRepository.saveAll(items);
-        }
-
-        return new SpendProcessingResult(
-            spend,
-            items,
-            SpendProcessingResult.ProcessingStatus.SUCCESS,
-            null
-        );
     }
 
-    private void rollback(UserApp user, Spend spend, StoredFile storedFile) {
-        try {
-            if (storedFile != null) {
-                storageService.deleteFile(storedFile.key());
-                log.info("rollback_s3_delete spendId={} s3Key={}", spend.getId(), storedFile.key());
-            }
-        } catch (Exception e) {
-            log.warn("rollback_s3_delete_failed spendId={} s3Key={}", spend.getId(),
-                storedFile != null ? storedFile.key() : null, e);
-        }
-
-        try {
-            spendItemRepository.deleteBySpendId(spend.getId());
-            receiptMetadataRepository.deleteBySpendId(spend.getId());
-            spendRepository.deleteById(spend.getId());
-            log.info("rollback_db_delete spendId={}", spend.getId());
-        } catch (Exception e) {
-            log.warn("rollback_db_delete_failed spendId={}", spend.getId(), e);
-        }
-    }
-
-    private Category resolveCategory(UUID categoryId) {
-        if (categoryId != null) {
-            return categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException(
-                    "Category not found: " + categoryId
-                ));
-        }
+    private Category uncategorized() {
         return categoryRepository.findByName("Uncategorized")
-            .orElseThrow(() -> new RuntimeException(
-                "Default 'Uncategorized' category not found"
-            ));
+            .orElseThrow(() -> new RuntimeException("Default 'Uncategorized' category not found"));
     }
 }
