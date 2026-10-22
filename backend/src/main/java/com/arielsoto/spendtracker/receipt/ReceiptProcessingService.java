@@ -158,14 +158,15 @@ public class ReceiptProcessingService {
      * Spend's amount, date, description, items and Category, keeps the full Bedrock response and
      * marks the Spend PROCESSED. The AI quota is checked again here.
      *
-     * A message for a missing Spend, or one not in PROCESSING, is a duplicate or stale delivery
-     * and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
+     * A message for a missing Spend, one not in PROCESSING, or one already enriched (a late duplicate
+     * of a message that was already handled, now seen while a Reclassify runs) is a duplicate or
+     * stale delivery and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
      * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processEnrichment(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
+        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING || isEnriched(spend)) {
             log.info("receipt_enrichment_dropped spendId={} status={}",
                 spendId, spend == null ? "MISSING" : spend.getStatus());
             return;
@@ -208,15 +209,16 @@ public class ReceiptProcessingService {
      * the Category from the current description, items and raw text; amount, date, description,
      * items and the stored Bedrock response are never touched.
      *
-     * Reclassify puts a PROCESSED Spend back in PROCESSING, so any other status is a duplicate or
-     * stale message and is dropped. Because the Spend already holds good (possibly user-edited) data,
+     * Reclassify puts an enriched PROCESSED Spend back in PROCESSING, so any other status, or a Spend
+     * not enriched yet (for example a Retry awaiting full Enrichment), is a duplicate or stale message
+     * and is dropped. Because the Spend already holds good (possibly user-edited) data,
      * giving up never marks it FAILED: on the last attempt, or when the AI quota is gone, it goes
      * back to PROCESSED with its old Category. Before the last attempt it stays PROCESSING and the
      * failure is rethrown so SQS redelivers.
      */
     public void processCategoryOnlyEnrichment(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
+        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING || !isEnriched(spend)) {
             log.info("receipt_category_only_dropped spendId={} status={}",
                 spendId, spend == null ? "MISSING" : spend.getStatus());
             return;
@@ -245,6 +247,12 @@ public class ReceiptProcessingService {
             }
             throw e;
         }
+    }
+
+    // Full Enrichment sets classifiedAt, and Extraction clears it, so it tells which kind of message is current.
+    private boolean isEnriched(Spend spend) {
+        ReceiptMetadata metadata = spend.getReceiptMetadata();
+        return metadata != null && metadata.getClassifiedAt() != null;
     }
 
     private void restoreProcessed(Spend spend) {
@@ -303,6 +311,9 @@ public class ReceiptProcessingService {
                 .build());
         metadata.setRawOcrText(ocrResult.rawText());
         metadata.setOcrConfidence(ocrResult.confidence());
+        // A Retry re-runs Extraction, so any earlier Enrichment result no longer applies.
+        metadata.setClassifiedAt(null);
+        metadata.setRawResponse(null);
         receiptMetadataRepository.save(metadata);
     }
 
