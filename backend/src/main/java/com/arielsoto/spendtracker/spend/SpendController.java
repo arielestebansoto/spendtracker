@@ -178,15 +178,7 @@ public class SpendController {
         try {
             Spend spend = receiptProcessingService.retry(user, id);
 
-            return ResponseEntity.ok(new CreateSpendResponse(
-                spend.getId(),
-                spend.getCategory().getId(),
-                spend.getCategory().getName(),
-                spend.getDescription(),
-                spend.getAmount(),
-                spend.getSpendDate(),
-                spend.getStatus()
-            ));
+            return ResponseEntity.ok(toCreateResponse(spend));
         } catch (NoSuchElementException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         } catch (SpendNotRetryableException e) {
@@ -213,15 +205,7 @@ public class SpendController {
         try {
             Spend spend = receiptProcessingService.uploadReceipt(user, file);
 
-            return ResponseEntity.ok(new CreateSpendResponse(
-                spend.getId(),
-                spend.getCategory().getId(),
-                spend.getCategory().getName(),
-                spend.getDescription(),
-                spend.getAmount(),
-                spend.getSpendDate(),
-                spend.getStatus()
-            ));
+            return ResponseEntity.ok(toCreateResponse(spend));
         } catch (AiUsageLimitExceededException e) {
             log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",
                 user.getId(), e.getResourceType());
@@ -231,5 +215,17 @@ public class SpendController {
                     "resourceType", e.getResourceType()
                 ));
         }
+    }
+
+    private CreateSpendResponse toCreateResponse(Spend spend) {
+        return new CreateSpendResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getStatus()
+        );
     }
 }
