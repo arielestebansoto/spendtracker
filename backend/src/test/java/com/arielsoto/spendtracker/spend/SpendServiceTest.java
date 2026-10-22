@@ -15,6 +15,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
@@ -160,5 +162,20 @@ class SpendServiceTest {
 
         verify(spendRepository).delete(spend);
         verify(storageService, never()).deleteFile(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(SpendStatus.class)
+    void deleteWorksInAnyStatusIncludingWhileBeingProcessed(SpendStatus status) {
+        Spend spend = buildSpend("spends/user/file.jpg");
+        spend.setStatus(status);
+        when(spendRepository.findByIdAndUserId(
+            spend.getId(), spend.getUser().getId()
+        )).thenReturn(Optional.of(spend));
+
+        spendService.delete(spend.getId(), spend.getUser().getId());
+
+        verify(spendRepository).delete(spend);
+        verify(storageService).deleteFile("spends/user/file.jpg");
     }
 }
