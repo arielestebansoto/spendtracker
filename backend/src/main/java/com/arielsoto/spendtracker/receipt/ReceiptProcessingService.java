@@ -60,6 +60,7 @@ public class ReceiptProcessingService {
             .description("Processing receipt...")
             .amount(BigDecimal.ZERO)
             .spendDate(LocalDate.now())
+            .status(SpendStatus.PROCESSING)
             .build();
         spend = spendRepository.save(spend);
 
@@ -163,6 +164,7 @@ public class ReceiptProcessingService {
         spend.setDescription(
             classified.description() != null ? classified.description() : "Receipt"
         );
+        spend.setStatus(SpendStatus.PROCESSED);
         spend = spendRepository.save(spend);
 
         ReceiptMetadata metadata = ReceiptMetadata.builder()
@@ -170,7 +172,6 @@ public class ReceiptProcessingService {
             .rawOcrText(ocrResult.rawText())
             .ocrConfidence(ocrResult.confidence())
             .classifiedAt(LocalDateTime.now())
-            .processingStatus(SpendProcessingResult.ProcessingStatus.SUCCESS.name())
             .createdAt(LocalDateTime.now())
             .build();
         receiptMetadataRepository.save(metadata);

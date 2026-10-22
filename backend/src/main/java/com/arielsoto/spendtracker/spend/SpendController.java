@@ -183,7 +183,8 @@ public class SpendController {
                 result.spend().getCategory().getName(),
                 result.spend().getDescription(),
                 result.spend().getAmount(),
-                result.spend().getSpendDate()
+                result.spend().getSpendDate(),
+                result.spend().getStatus()
             ));
         } catch (AiUsageLimitExceededException e) {
             log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",

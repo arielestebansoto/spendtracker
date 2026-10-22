@@ -48,7 +48,8 @@ public class SpendService {
             spend.getAmount(),
             spend.getSpendDate(),
             spend.getCreatedAt(),
-            spend.receiptUrl()
+            spend.receiptUrl(),
+            spend.getStatus()
         );
     }
 
@@ -64,7 +65,8 @@ public class SpendService {
                     s.getCategory().getName(),
                     s.getAmount(),
                     s.getSpendDate(),
-                    s.getDescription()
+                    s.getDescription(),
+                    s.getStatus()
                 );
             });
     }
@@ -91,7 +93,8 @@ public class SpendService {
                 s.getCategory().getName(),
                 s.getAmount(),
                 s.getSpendDate(),
-                s.getDescription()
+                s.getDescription(),
+                    s.getStatus()
             ));
     }
 
@@ -108,6 +111,7 @@ public class SpendService {
             .description(request.description())
             .amount(request.amount())
             .spendDate(request.spendDate())
+            .status(SpendStatus.PROCESSED)
             .build();
 
         Spend saved = spendRepository.save(spend);
@@ -118,7 +122,8 @@ public class SpendService {
             saved.getCategory().getName(),
             saved.getDescription(),
             saved.getAmount(),
-            saved.getSpendDate()
+            saved.getSpendDate(),
+            saved.getStatus()
         );
     }
 
@@ -148,7 +153,8 @@ public class SpendService {
             spend.getAmount(),
             spend.getSpendDate(),
             spend.getCreatedAt(),
-            spend.receiptUrl()
+            spend.receiptUrl(),
+            spend.getStatus()
         );
     }
 
@@ -180,18 +186,22 @@ public class SpendService {
         int recentLimit
     ) {
         BigDecimal total = spendRepository
-            .sumAmountByUserIdAndSpendDateBetween(userId, startDate, endDate);
+            .sumAmountByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate
+            );
 
         long count = spendRepository
-            .countByUserIdAndSpendDateBetween(userId, startDate, endDate);
+            .countByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate
+            );
 
         BigDecimal average = count > 0
             ? total.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
             : BigDecimal.ZERO;
 
         List<SpendListItemResponse> recentSpends = spendRepository
-            .findTopNByUserIdAndSpendDateBetween(
-                userId, startDate, endDate,
+            .findTopNByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate,
                 PageRequest.of(0, recentLimit)
             )
             .map(s -> new SpendListItemResponse(
@@ -199,7 +209,8 @@ public class SpendService {
                 s.getCategory().getName(),
                 s.getAmount(),
                 s.getSpendDate(),
-                s.getDescription()
+                s.getDescription(),
+                    s.getStatus()
             ))
             .getContent();
 
@@ -233,7 +244,8 @@ public class SpendService {
             saved.getCategory().getName(),
             saved.getDescription(),
             saved.getAmount(),
-            saved.getSpendDate()
+            saved.getSpendDate(),
+            saved.getStatus()
         );
     }
 
