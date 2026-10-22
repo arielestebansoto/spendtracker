@@ -89,6 +89,26 @@ export default function ViewSpendPage() {
     if (user) load();
   }, [user, spendId, fetchReceipt, pollCount]);
 
+  // Reclassify only recalculates the Category. The Spend comes back in progress, which locks it
+  // and starts the polling below until it is PROCESSED again.
+  const [isReclassifying, setIsReclassifying] = useState(false);
+  const [reclassifyError, setReclassifyError] = useState(false);
+
+  async function reclassify() {
+    setIsReclassifying(true);
+    setReclassifyError(false);
+    try {
+      const response = await apiFetch(`/api/v1/spends/${spendId}/reclassify`, { method: "POST" });
+      if (!response.ok) throw new Error("Reclassify failed");
+      const data: SpendDetail = await response.json();
+      setSpend(data);
+    } catch {
+      setReclassifyError(true);
+    } finally {
+      setIsReclassifying(false);
+    }
+  }
+
   // Poll only while the Spend is still being processed.
   usePollWhile(spend !== null && isInProgress(spend.status), () =>
     setPollCount((count) => count + 1)
@@ -113,6 +133,15 @@ export default function ViewSpendPage() {
           >
             Edit
           </button>
+          {spend.receiptUrl && (
+            <button
+              onClick={reclassify}
+              disabled={isReclassifying || spend.status !== "PROCESSED"}
+              className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Reclassify
+            </button>
+          )}
           <button
             onClick={() => router.back()}
             className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
@@ -121,6 +150,12 @@ export default function ViewSpendPage() {
           </button>
         </div>
       </div>
+
+      {reclassifyError && (
+        <p className="mb-4 text-sm text-destructive">
+          Could not reclassify this spend. Please try again.
+        </p>
+      )}
 
       {isInProgress(spend.status) && (
         <div className="rounded-xl border border-border p-6">
