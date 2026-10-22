@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +37,8 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     // For queue workers, which run outside a request and need the owner without a lazy load.
     @EntityGraph(attributePaths = {"user"})
     Optional<Spend> findWithUserById(UUID id);
+
+    List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
 
     boolean existsByCategoryId(UUID categoryId);
 
