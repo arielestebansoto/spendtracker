@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -27,9 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
-import com.arielsoto.spendtracker.receipt.ReceiptProcessingException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
-import com.arielsoto.spendtracker.receipt.SpendProcessingResult;
+import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
@@ -140,6 +140,17 @@ public class SpendController {
         );
     }
 
+    @PostMapping("/{id}/reclassify")
+    public SpendDetailResponse reclassify(
+        @PathVariable("id") UUID id,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        return spendService.reclassify(id, user.getId());
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
@@ -156,10 +167,29 @@ public class SpendController {
         );
     }
 
+    @PostMapping("/{id}/retry")
+    public ResponseEntity<?> retry(
+        @PathVariable("id") UUID id,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        try {
+            Spend spend = receiptProcessingService.retry(user, id);
+
+            return ResponseEntity.ok(toCreateResponse(spend));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        } catch (SpendNotRetryableException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PostMapping(value = "/from-receipt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> createFromReceipt(
         @RequestParam("receipt") MultipartFile file,
-        @RequestParam(value = "categoryId", required = false) UUID categoryId,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
@@ -173,18 +203,9 @@ public class SpendController {
         );
 
         try {
-            SpendProcessingResult result = receiptProcessingService.processReceipt(
-                user, file, categoryId
-            );
+            Spend spend = receiptProcessingService.uploadReceipt(user, file);
 
-            return ResponseEntity.ok(new CreateSpendResponse(
-                result.spend().getId(),
-                result.spend().getCategory().getId(),
-                result.spend().getCategory().getName(),
-                result.spend().getDescription(),
-                result.spend().getAmount(),
-                result.spend().getSpendDate()
-            ));
+            return ResponseEntity.ok(toCreateResponse(spend));
         } catch (AiUsageLimitExceededException e) {
             log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",
                 user.getId(), e.getResourceType());
@@ -193,14 +214,18 @@ public class SpendController {
                     "error", e.getMessage(),
                     "resourceType", e.getResourceType()
                 ));
-        } catch (ReceiptProcessingException e) {
-            log.error("api_create_spend_from_receipt_failed userId={} reason={}",
-                user.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of(
-                    "error", "We cannot process this receipt right now. Please try again later.",
-                    "details", e.getMessage()
-                ));
         }
+    }
+
+    private CreateSpendResponse toCreateResponse(Spend spend) {
+        return new CreateSpendResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getStatus()
+        );
     }
 }

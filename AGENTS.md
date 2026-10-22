@@ -59,6 +59,7 @@ cd frontend && pnpm build
 - Frontend Next.js config: `output: "standalone"` for Docker deployments
 - Session cookies: secure in prod, non-secure in dev
 - CORS origins must be set via env var `CORS_ALLOWED_ORIGINS`
+- SQS queue naming (`<env>-receipt-extraction`, `<env>-spend-enrichment`, plus `-dlq`), queue URL env vars and IAM permissions: `docs/sqs-provisioning.md` (created by `scripts/provision-sqs.sh`)
 - Required env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OAUTH2_*` keys
 
 ## Coding Principles

@@ -1,7 +1,6 @@
 package com.arielsoto.spendtracker.receipt;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,35 +57,6 @@ class ReceiptControllerTest {
     }
 
     @Test
-    void uploadReturns200WithResponse() throws Exception {
-        UserApp user = buildUser();
-        UUID spendId = UUID.randomUUID();
-
-        when(authenticatedUserService.getCurrentUser(
-            any()
-        )).thenReturn(user);
-
-        when(receiptService.storeReceipt(
-            eq(user), eq(spendId), any()
-        )).thenReturn(new ReceiptUploadResponse(
-            "/api/v1/spends/" + spendId + "/receipt",
-            "image/jpeg", 1024L
-        ));
-
-        MockMultipartFile file = new MockMultipartFile(
-            "receipt", "receipt.jpg", "image/jpeg",
-            new byte[]{1, 2, 3}
-        );
-
-        mockMvc.perform(multipart(
-                "/api/v1/spends/" + spendId + "/receipt"
-            ).file(file))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.contentType").value("image/jpeg"))
-            .andExpect(jsonPath("$.size").value(1024));
-    }
-
-    @Test
     void getReceiptReturns200WithResource() throws Exception {
         UserApp user = buildUser();
         UUID spendId = UUID.randomUUID();
@@ -109,17 +79,23 @@ class ReceiptControllerTest {
     }
 
     @Test
-    void deleteReceiptReturns204() throws Exception {
-        UserApp user = buildUser();
-        UUID spendId = UUID.randomUUID();
+    void uploadReceiptToExistingSpendIsNotAllowed() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+            "receipt", "receipt.jpg", "image/jpeg",
+            new byte[]{1, 2, 3}
+        );
 
-        when(authenticatedUserService.getCurrentUser(
-            any()
-        )).thenReturn(user);
+        mockMvc.perform(multipart(
+                "/api/v1/spends/" + UUID.randomUUID() + "/receipt"
+            ).file(file))
+            .andExpect(status().isMethodNotAllowed());
+    }
 
+    @Test
+    void deleteReceiptOfExistingSpendIsNotAllowed() throws Exception {
         mockMvc.perform(delete(
-                "/api/v1/spends/" + spendId + "/receipt"
+                "/api/v1/spends/" + UUID.randomUUID() + "/receipt"
             ))
-            .andExpect(status().isNoContent());
+            .andExpect(status().isMethodNotAllowed());
     }
 }
