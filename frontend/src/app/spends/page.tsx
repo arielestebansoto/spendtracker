@@ -12,6 +12,7 @@ import DeleteSpendModal from "@/app/components/DeleteSpendModal";
 import Toast, { ToastVariant } from "@/app/components/Toast";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
+import { retrySpend } from "@/app/lib/retrySpend";
 
 type Spend = {
   id: string;
@@ -211,6 +212,15 @@ export default function SpendsPage() {
     } finally {
       setIsDeleting(false);
       setDeleteTarget(null);
+    }
+  }
+
+  async function handleRetry(spend: Spend) {
+    if (await retrySpend(spend.id)) {
+      // Back to PENDING on screen right away; this also restarts the polling.
+      setSpends((prev) => prev.map((s) => (s.id === spend.id ? { ...s, status: "PENDING" } : s)));
+    } else {
+      setToast({ message: "Could not retry this spend. Try again.", variant: "error" });
     }
   }
 
@@ -427,6 +437,14 @@ export default function SpendsPage() {
                     <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
                   )}
                   <div className="flex gap-1">
+                    {spend.status === "FAILED" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRetry(spend); }}
+                        className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition"
+                      >
+                        Retry
+                      </button>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); router.push(`/spends/${spend.id}/edit`); }}
                       disabled={isInProgress(spend.status)}

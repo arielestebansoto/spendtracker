@@ -88,6 +88,33 @@ public class ReceiptProcessingService {
     }
 
     /**
+     * Retries a FAILED Spend: puts it back to PENDING and queues it for Extraction again, so the
+     * whole pipeline restarts. Any other status is rejected. If queueing fails the Spend goes back
+     * to FAILED, so it never sits in PENDING without a message, and the error is reported.
+     */
+    public Spend retry(UserApp user, UUID spendId) {
+        Spend spend = spendRepository.findByIdAndUserId(spendId, user.getId()).orElseThrow();
+        if (spend.getStatus() != SpendStatus.FAILED) {
+            throw new SpendNotRetryableException(spend.getStatus());
+        }
+
+        spend.setStatus(SpendStatus.PENDING);
+        spend = spendRepository.save(spend);
+
+        try {
+            queuePublisher.publishForExtraction(spendId);
+        } catch (RuntimeException e) {
+            log.error("receipt_retry_publish_failed userId={} spendId={}", user.getId(), spendId, e);
+            spend.setStatus(SpendStatus.FAILED);
+            spendRepository.save(spend);
+            throw e;
+        }
+
+        log.info("receipt_retried userId={} spendId={}", user.getId(), spendId);
+        return spend;
+    }
+
+    /**
      * Extraction stage, run by the extraction queue worker. Moves the Spend to PROCESSING, reads
      * the image into raw text, stores it and queues the Spend for Enrichment.
      *

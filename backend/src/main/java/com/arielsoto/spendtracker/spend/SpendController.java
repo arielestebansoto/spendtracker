@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -28,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
+import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
@@ -163,6 +165,34 @@ public class SpendController {
             id,
             user.getId()
         );
+    }
+
+    @PostMapping("/{id}/retry")
+    public ResponseEntity<?> retry(
+        @PathVariable("id") UUID id,
+        OAuth2AuthenticationToken authentication
+    ) {
+        UserApp user = authenticatedUserService
+            .getCurrentUser(authentication);
+
+        try {
+            Spend spend = receiptProcessingService.retry(user, id);
+
+            return ResponseEntity.ok(new CreateSpendResponse(
+                spend.getId(),
+                spend.getCategory().getId(),
+                spend.getCategory().getName(),
+                spend.getDescription(),
+                spend.getAmount(),
+                spend.getSpendDate(),
+                spend.getStatus()
+            ));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        } catch (SpendNotRetryableException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping(value = "/from-receipt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

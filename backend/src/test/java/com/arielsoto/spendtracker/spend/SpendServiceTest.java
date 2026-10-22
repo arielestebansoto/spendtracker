@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -17,9 +17,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
@@ -173,6 +173,21 @@ class SpendServiceTest {
         verify(storageService, never()).deleteFile(any());
     }
 
+    @ParameterizedTest
+    @EnumSource(SpendStatus.class)
+    void deleteWorksInAnyStatusIncludingWhileBeingProcessed(SpendStatus status) {
+        Spend spend = buildSpend("spends/user/file.jpg");
+        spend.setStatus(status);
+        when(spendRepository.findByIdAndUserId(
+            spend.getId(), spend.getUser().getId()
+        )).thenReturn(Optional.of(spend));
+
+        spendService.delete(spend.getId(), spend.getUser().getId());
+
+        verify(spendRepository).delete(spend);
+        verify(storageService).deleteFile("spends/user/file.jpg");
+    }
+
     private Spend spendWithStatus(String receiptKey, SpendStatus status) {
         Spend spend = buildSpend(receiptKey);
         spend.setCategory(category());
@@ -215,17 +230,6 @@ class SpendServiceTest {
 
         assertThat(spend.getDescription()).isEqualTo("Edited");
         assertThat(spend.getAmount()).isEqualByComparingTo("99.00");
-    }
-
-    @ParameterizedTest
-    @EnumSource(SpendStatus.class)
-    void deleteIsAllowedInAnyStatus(SpendStatus status) {
-        Spend spend = spendWithStatus(null, status);
-        owns(spend);
-
-        spendService.delete(spend.getId(), spend.getUser().getId());
-
-        verify(spendRepository).delete(spend);
     }
 
     // ---- reclassify ----

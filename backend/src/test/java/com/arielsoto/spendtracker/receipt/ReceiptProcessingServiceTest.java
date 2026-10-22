@@ -12,8 +12,9 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -388,6 +389,71 @@ class ReceiptProcessingServiceTest {
 
         assertEquals(SpendStatus.FAILED, spend.getStatus());
         verifyNoInteractions(enrichmentService);
+    }
+
+    // ---- retry ----
+
+    private Spend ownedSpendIn(SpendStatus status) {
+        Spend spend = spendIn(status);
+        lenient().when(spendRepository.findByIdAndUserId(spend.getId(), user.getId()))
+            .thenReturn(Optional.of(spend));
+        return spend;
+    }
+
+    @Test
+    void retry_movesFailedSpendBackToPendingAndPublishesToExtractionQueue() {
+        Spend spend = ownedSpendIn(SpendStatus.FAILED);
+
+        Spend retried = service.retry(user, spend.getId());
+
+        assertEquals(SpendStatus.PENDING, retried.getStatus());
+        verify(spendRepository).save(spend);
+        verify(queuePublisher).publishForExtraction(spend.getId());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSING", "PROCESSED"})
+    void retry_rejectsSpendsThatAreNotFailedWithoutSideEffects(SpendStatus status) {
+        Spend spend = ownedSpendIn(status);
+
+        assertThrows(SpendNotRetryableException.class, () -> service.retry(user, spend.getId()));
+
+        assertEquals(status, spend.getStatus());
+        verify(spendRepository, never()).save(any());
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void retry_ofAnotherUsersOrMissingSpendFindsNothing() {
+        UUID spendId = UUID.randomUUID();
+        when(spendRepository.findByIdAndUserId(spendId, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class, () -> service.retry(user, spendId));
+
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void retry_whenPublishFailsLeavesTheSpendFailedAndReportsTheError() {
+        Spend spend = ownedSpendIn(SpendStatus.FAILED);
+        doThrow(new RuntimeException("sqs down")).when(queuePublisher).publishForExtraction(any());
+
+        assertThrows(RuntimeException.class, () -> service.retry(user, spend.getId()));
+
+        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        verify(storageService, never()).deleteFile(any());
+    }
+
+    @Test
+    void retriedSpendRunsThroughExtractionAgain() {
+        Spend spend = ownedSpendIn(SpendStatus.FAILED);
+        when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
+
+        service.retry(user, spend.getId());
+        service.processExtraction(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        verify(queuePublisher).publishForEnrichment(spend.getId());
     }
 
     // ---- category-only enrichment (Reclassify) ----
