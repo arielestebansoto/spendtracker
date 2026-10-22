@@ -8,6 +8,7 @@ import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
+import { retrySpend } from "@/app/lib/retrySpend";
 
 type SpendDetail = {
   id: string;
@@ -94,6 +95,18 @@ export default function ViewSpendPage() {
     setPollCount((count) => count + 1)
   );
 
+  const [retryFailed, setRetryFailed] = useState(false);
+
+  async function handleRetry() {
+    setRetryFailed(false);
+    if (await retrySpend(spendId)) {
+      // Back to PENDING on screen right away; this also restarts the polling.
+      setSpend((current) => (current ? { ...current, status: "PENDING" } : current));
+    } else {
+      setRetryFailed(true);
+    }
+  }
+
   if (authLoading || !user) return <LoadingState />;
   if (error) return <ErrorState message="Could not load spend." onRetry={() => router.refresh()} />;
   if (isLoading || !spend) return <LoadingState />;
@@ -136,9 +149,18 @@ export default function ViewSpendPage() {
         <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
           <p className="text-sm font-medium text-destructive">We could not process this receipt</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            The image is still saved. You can enter the details by editing this spend, or delete it
-            from the spends list.
+            The image is still saved. Retry to read it again, or delete this spend from the spends
+            list.
           </p>
+          {retryFailed && (
+            <p className="mt-2 text-sm text-destructive">Could not retry this spend. Try again.</p>
+          )}
+          <button
+            onClick={handleRetry}
+            className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          >
+            Retry
+          </button>
         </div>
       )}
 
