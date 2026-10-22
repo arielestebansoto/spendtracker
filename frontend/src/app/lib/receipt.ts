@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { SpendStatus } from "./spendStatus";
+import { SpendStatus } from "@/app/lib/spendStatus";
 
 export type CreateSpendFromReceiptResponse = {
   id: string;
