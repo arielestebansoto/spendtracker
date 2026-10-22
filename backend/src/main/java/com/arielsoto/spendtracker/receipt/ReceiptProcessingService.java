@@ -4,9 +4,12 @@ import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.spend.Spend;
+import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.spend.SpendStatus;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
@@ -21,11 +24,12 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * Drives a Spend created from a Receipt through the asynchronous pipeline.
- * Upload runs in the HTTP request; the Extraction stage runs in a queue worker.
+ * Upload runs in the HTTP request; the Extraction and Enrichment stages run in queue workers.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,6 +40,7 @@ public class ReceiptProcessingService {
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
     private final ReceiptExtractionService extractionService;
+    private final ReceiptEnrichmentService enrichmentService;
     private final AiUsageService aiUsageService;
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
@@ -118,6 +123,82 @@ public class ReceiptProcessingService {
             spendRepository.save(spend);
             throw e;
         }
+    }
+
+    /**
+     * Enrichment stage, run by the enrichment queue worker. Turns the stored raw text into the
+     * Spend's amount, date, description, items and Category, keeps the full Bedrock response and
+     * marks the Spend PROCESSED. The AI quota is checked again here.
+     *
+     * A message for a missing Spend, or one not in PROCESSING, is a duplicate or stale delivery
+     * and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
+     * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
+     * Running out of AI quota is not retried: SQS cannot fix it.
+     */
+    public void processEnrichment(UUID spendId, boolean lastAttempt) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
+            log.info("receipt_enrichment_dropped spendId={} status={}",
+                spendId, spend == null ? "MISSING" : spend.getStatus());
+            return;
+        }
+
+        try {
+            ReceiptMetadata metadata = spend.getReceiptMetadata();
+            if (metadata == null || metadata.getRawOcrText() == null) {
+                throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
+            }
+            ClassifiedSpendResult result = enrichmentService.enrich(spend.getUser(), metadata.getRawOcrText());
+            applyEnrichment(spend, result);
+            spendRepository.save(spend);
+        } catch (AiUsageLimitExceededException e) {
+            log.warn("receipt_enrichment_ai_limit_exceeded spendId={} resourceType={}",
+                spendId, e.getResourceType());
+            spend.setStatus(SpendStatus.FAILED);
+            spendRepository.save(spend);
+        } catch (RuntimeException e) {
+            log.error("receipt_enrichment_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            if (lastAttempt) {
+                spend.setStatus(SpendStatus.FAILED);
+                spendRepository.save(spend);
+            }
+            throw e;
+        }
+    }
+
+    // Everything is set on the loaded Spend and saved once, so the data and PROCESSED land together.
+    private void applyEnrichment(Spend spend, ClassifiedSpendResult result) {
+        ClassifiedSpend classified = result.classified();
+        spend.setAmount(classified.amount());
+        spend.setDescription(classified.description());
+        if (classified.date() != null) {
+            spend.setSpendDate(classified.date());
+        }
+        spend.setCategory(categoryFor(classified.category()));
+
+        spend.getItems().clear();
+        LocalDateTime now = LocalDateTime.now();
+        List<ClassifiedSpend.ClassifiedItem> items = classified.items();
+        for (int position = 0; position < items.size(); position++) {
+            spend.getItems().add(SpendItem.builder()
+                .spend(spend)
+                .description(items.get(position).description())
+                .amount(items.get(position).amount())
+                .position(position)
+                .createdAt(now)
+                .build());
+        }
+
+        spend.getReceiptMetadata().setRawResponse(result.rawResponse());
+        spend.getReceiptMetadata().setClassifiedAt(now);
+        spend.setStatus(SpendStatus.PROCESSED);
+    }
+
+    private Category categoryFor(String name) {
+        if (name == null) {
+            return uncategorized();
+        }
+        return categoryRepository.findByName(name).orElseGet(this::uncategorized);
     }
 
     private byte[] loadImage(Spend spend) {

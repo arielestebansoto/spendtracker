@@ -28,10 +28,8 @@ public class TestBedrockConfig {
                 LocalDate.now(),
                 List.of()
         );
-        Mockito.when(mock.classify(Mockito.anyString()))
-                .thenReturn(new ClassifiedSpendResult(classified, 0, 0));
-        Mockito.when(mock.classify(Mockito.anyString(), Mockito.anyList()))
-                .thenReturn(new ClassifiedSpendResult(classified, 0, 0));
+        Mockito.when(mock.classify(Mockito.anyString(), Mockito.anyList(), Mockito.anyList()))
+                .thenReturn(new ClassifiedSpendResult(classified, 0, 0, null));
         return mock;
     }
 }

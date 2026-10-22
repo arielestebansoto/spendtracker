@@ -34,8 +34,8 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
 
     Optional<Spend> findByIdAndUserId(UUID id, UUID userId);
 
-    // For queue workers, which run outside a request and need the owner without a lazy load.
-    @EntityGraph(attributePaths = {"user"})
+    // For queue workers, which run outside a request and need the owner and items without a lazy load.
+    @EntityGraph(attributePaths = {"user", "items"})
     Optional<Spend> findWithUserById(UUID id);
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);

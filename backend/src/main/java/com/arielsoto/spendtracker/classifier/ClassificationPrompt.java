@@ -1,16 +1,17 @@
 package com.arielsoto.spendtracker.classifier;
 
+import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
 
 import java.util.List;
 
 public class ClassificationPrompt {
 
-    public static String buildPrompt(String ocrText) {
-        return buildPrompt(ocrText, List.of());
-    }
-
-    public static String buildPrompt(String ocrText, List<ClassificationRule> rules) {
+    public static String buildPrompt(
+        String ocrText,
+        List<Category> categories,
+        List<ClassificationRule> rules
+    ) {
         StringBuilder prompt = new StringBuilder();
 
         prompt.append("""
@@ -21,19 +22,13 @@ public class ClassificationPrompt {
 
             Return ONLY a JSON object with these fields:
             - amount (number): the TOTAL amount from the receipt. Use the actual number printed on the receipt.
-            - category (string): choose the ONE best category based on what was purchased:
-              - Comida: food, groceries, restaurants, cafes, drinks
-              - Transporte: gas, taxi, ride-share, parking, public transit
-              - Servicios: utilities, phone, internet, subscriptions
-              - Salud: medicine, pharmacy, doctor, hospital
-              - Streaming: Netflix, Spotify, Disney+, etc.
-              - Trabajo: office supplies, tools, work-related
-              - Hogar: home improvement, furniture, cleaning
-              - Otros: anything that does not fit the above
+            - category (string): choose the ONE best category name from the supported categories listed below, based on what was purchased
             - description (string): brief summary of what was purchased
             - date (string|null): date in YYYY-MM-DD format, or null if not visible
             - items (array): list of objects with "description" (string) and "amount" (number) for each line item
             """);
+
+        appendCategories(prompt, categories);
 
         if (rules != null && !rules.isEmpty()) {
             prompt.append("""
@@ -68,5 +63,16 @@ public class ClassificationPrompt {
             """);
 
         return prompt.toString();
+    }
+
+    private static void appendCategories(StringBuilder prompt, List<Category> categories) {
+        prompt.append("\nSupported categories:\n");
+        for (Category category : categories) {
+            prompt.append("- ").append(category.getName());
+            if (category.getDescription() != null) {
+                prompt.append(": ").append(category.getDescription());
+            }
+            prompt.append("\n");
+        }
     }
 }

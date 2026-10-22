@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,9 +33,12 @@ import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.aiusage.AiUsageService;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.spend.Spend;
+import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.spend.SpendStatus;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
@@ -54,6 +59,9 @@ class ReceiptProcessingServiceTest {
 
     @Mock
     private ReceiptExtractionService extractionService;
+
+    @Mock
+    private ReceiptEnrichmentService enrichmentService;
 
     @Mock
     private AiUsageService aiUsageService;
@@ -139,6 +147,7 @@ class ReceiptProcessingServiceTest {
 
     // ---- extraction worker ----
 
+    private static final LocalDate PROVISIONAL_DATE = LocalDate.of(2026, 10, 22);
     private static final byte[] IMAGE = new byte[] {1, 2, 3};
 
     private Spend spendIn(SpendStatus status) {
@@ -148,6 +157,7 @@ class ReceiptProcessingServiceTest {
             .category(uncategorized)
             .description("Processing receipt...")
             .amount(BigDecimal.ZERO)
+            .spendDate(PROVISIONAL_DATE)
             .receiptKey("spends/u/s.jpg")
             .receiptContentType("image/jpeg")
             .build();
@@ -235,5 +245,147 @@ class ReceiptProcessingServiceTest {
 
         assertEquals(SpendStatus.FAILED, spend.getStatus());
         verifyNoInteractions(queuePublisher);
+    }
+
+    // ---- enrichment worker ----
+
+    private final Category comida = Category.builder().id(UUID.randomUUID()).name("Comida").build();
+
+    private Spend spendAwaitingEnrichment(SpendStatus status) {
+        Spend spend = spendIn(status);
+        spend.setReceiptMetadata(ReceiptMetadata.builder().spend(spend).rawOcrText("TOTAL 10").build());
+        return spend;
+    }
+
+    private ClassifiedSpendResult classification(String category, LocalDate date) {
+        ClassifiedSpend classified = new ClassifiedSpend(
+            new BigDecimal("10.50"),
+            category,
+            "Supermarket",
+            date,
+            List.of(
+                new ClassifiedSpend.ClassifiedItem("Milk", new BigDecimal("4.50")),
+                new ClassifiedSpend.ClassifiedItem("Bread", new BigDecimal("6.00"))
+            )
+        );
+        return new ClassifiedSpendResult(classified, 100, 20, Map.of("output", "raw"));
+    }
+
+    @Test
+    void enrichment_storesExtractedDataAndRawResponseAndMarksProcessed() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(user, "TOTAL 10"))
+            .thenReturn(classification("Comida", LocalDate.of(2026, 1, 5)));
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+        assertEquals(new BigDecimal("10.50"), spend.getAmount());
+        assertEquals("Supermarket", spend.getDescription());
+        assertEquals(LocalDate.of(2026, 1, 5), spend.getSpendDate());
+        assertEquals(comida, spend.getCategory());
+        assertEquals(List.of("Milk", "Bread"), spend.getItems().stream().map(SpendItem::getDescription).toList());
+        assertEquals(List.of(0, 1), spend.getItems().stream().map(SpendItem::getPosition).toList());
+        assertEquals(Map.of("output", "raw"), spend.getReceiptMetadata().getRawResponse());
+        verify(spendRepository).save(spend);
+    }
+
+    @Test
+    void enrichment_keepsTheProvisionalDateWhenTheReceiptHasNone() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(any(), any())).thenReturn(classification("Comida", null));
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(PROVISIONAL_DATE, spend.getSpendDate());
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+    }
+
+    @Test
+    void enrichment_fallsBackToUncategorizedWhenTheModelReturnsAnUnknownCategory() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Invented")).thenReturn(Optional.empty());
+        when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(uncategorized));
+        when(enrichmentService.enrich(any(), any())).thenReturn(classification("Invented", null));
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(uncategorized, spend.getCategory());
+        assertEquals(SpendStatus.PROCESSED, spend.getStatus());
+    }
+
+    @Test
+    void enrichment_dropsMessageForMissingSpend() {
+        UUID missing = UUID.randomUUID();
+        when(spendRepository.findWithUserById(missing)).thenReturn(Optional.empty());
+
+        service.processEnrichment(missing, false);
+
+        verifyNoInteractions(enrichmentService, queuePublisher);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSED", "FAILED"})
+    void enrichment_dropsDuplicateOrStaleMessageWithoutSideEffects(SpendStatus status) {
+        Spend spend = spendAwaitingEnrichment(status);
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(status, spend.getStatus());
+        assertEquals(BigDecimal.ZERO, spend.getAmount());
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void enrichment_failureBeforeLastAttemptLeavesSpendProcessingSoRedeliveryRetries() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any()))
+            .thenThrow(new ReceiptProcessingException("no amount"));
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processEnrichment(spend.getId(), false));
+
+        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        assertEquals(BigDecimal.ZERO, spend.getAmount());
+    }
+
+    @Test
+    void enrichment_failureOnLastAttemptMarksFailedAndDeletesNothing() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any()))
+            .thenThrow(new ReceiptProcessingException("no amount"));
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processEnrichment(spend.getId(), true));
+
+        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        verify(spendRepository).save(spend);
+        verify(storageService, never()).deleteFile(any());
+        verify(spendRepository, never()).delete(any(Spend.class));
+        verify(spendRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void enrichment_withNoQuotaLeftMarksFailedWithoutRetry() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any()))
+            .thenThrow(new AiUsageLimitExceededException("BEDROCK", "limit"));
+
+        service.processEnrichment(spend.getId(), false);
+
+        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        assertEquals(BigDecimal.ZERO, spend.getAmount());
+    }
+
+    @Test
+    void enrichment_failsWhenTheRawTextWasNeverStored() {
+        Spend spend = spendIn(SpendStatus.PROCESSING);
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processEnrichment(spend.getId(), true));
+
+        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        verifyNoInteractions(enrichmentService);
     }
 }
