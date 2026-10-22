@@ -9,10 +9,13 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
@@ -32,6 +35,7 @@ public class SpendService {
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
     private final SpendReceiptStorageService storageService;
+    private final ReceiptQueuePublisher queuePublisher;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -139,12 +143,59 @@ public class SpendService {
             .findByIdAndUserId(id, userId)
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
+        rejectIfInProgress(spend);
+
         Category category = resolveCategory(request.categoryId());
 
         spend.setCategory(category);
         spend.setDescription(request.description());
         spend.setAmount(request.amount());
         spend.setSpendDate(request.spendDate());
+
+        return new SpendDetailResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getCreatedAt(),
+            spend.receiptUrl(),
+            spend.getStatus()
+        );
+    }
+
+    /**
+     * Reclassify: recalculates only the Category of a Spend with a Receipt. The Spend goes back to
+     * PROCESSING until the category-only Enrichment finishes, which locks it against edits so the
+     * background result cannot overwrite them.
+     */
+    public SpendDetailResponse reclassify(UUID id, UUID userId) {
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Spend not found"));
+
+        if (spend.getReceiptKey() == null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Only a spend with a receipt can be reclassified"
+            );
+        }
+        rejectIfInProgress(spend);
+        if (spend.getStatus() == SpendStatus.FAILED) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "A failed spend must be retried, not reclassified"
+            );
+        }
+
+        spend.setStatus(SpendStatus.PROCESSING);
+        spendRepository.save(spend);
+        try {
+            queuePublisher.publishForCategoryOnlyEnrichment(spend.getId());
+        } catch (RuntimeException e) {
+            spend.setStatus(SpendStatus.PROCESSED);
+            spendRepository.save(spend);
+            throw e;
+        }
 
         return new SpendDetailResponse(
             spend.getId(),
@@ -222,6 +273,14 @@ public class SpendService {
         return new DashboardSummaryResponse(
             total, count, average, recentSpends
         );
+    }
+
+    private void rejectIfInProgress(Spend spend) {
+        if (spend.getStatus().isInProgress()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "The spend is being processed and cannot be changed yet"
+            );
+        }
     }
 
     private Category resolveCategory(UUID categoryId) {

@@ -1,6 +1,5 @@
 package com.arielsoto.spendtracker.queue;
 
-import java.util.UUID;
 import java.util.function.BiConsumer;
 
 import org.springframework.context.SmartLifecycle;
@@ -12,7 +11,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 
 /**
- * Long-polls one queue on its own thread and hands each Spend id to the worker.
+ * Long-polls one queue on its own thread and hands each message (a Spend id, optionally flagged category-only) to the worker.
  * The worker receives whether this is the last delivery attempt SQS will make.
  * A message is deleted only when the worker returns normally; otherwise SQS redelivers it
  * after the visibility timeout and, after the last attempt, moves it to the dead-letter queue.
@@ -27,7 +26,7 @@ public class SqsQueuePoller implements SmartLifecycle {
     private final SqsClient sqs;
     private final String queueUrl;
     private final int maxReceiveCount;
-    private final BiConsumer<UUID, Boolean> worker;
+    private final BiConsumer<SpendMessage, Boolean> worker;
 
     private volatile boolean running;
     private Thread thread;
@@ -37,7 +36,7 @@ public class SqsQueuePoller implements SmartLifecycle {
         SqsClient sqs,
         String queueUrl,
         int maxReceiveCount,
-        BiConsumer<UUID, Boolean> worker
+        BiConsumer<SpendMessage, Boolean> worker
     ) {
         this.name = name;
         this.sqs = sqs;
@@ -88,9 +87,9 @@ public class SqsQueuePoller implements SmartLifecycle {
     }
 
     void handle(Message message) {
-        UUID spendId;
+        SpendMessage spendMessage;
         try {
-            spendId = UUID.fromString(message.body());
+            spendMessage = SpendMessage.parse(message.body());
         } catch (IllegalArgumentException e) {
             log.warn("sqs_message_malformed name={} messageId={}", name, message.messageId());
             delete(message);
@@ -101,10 +100,10 @@ public class SqsQueuePoller implements SmartLifecycle {
             message.attributes().getOrDefault(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT, "1")
         );
         try {
-            worker.accept(spendId, receiveCount >= maxReceiveCount);
+            worker.accept(spendMessage, receiveCount >= maxReceiveCount);
             delete(message);
         } catch (Exception e) {
-            log.warn("sqs_message_failed name={} spendId={} receiveCount={}", name, spendId, receiveCount);
+            log.warn("sqs_message_failed name={} spendId={} receiveCount={}", name, spendMessage.spendId(), receiveCount);
         }
     }
 

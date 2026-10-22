@@ -2,6 +2,7 @@ package com.arielsoto.spendtracker.classifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -94,5 +95,30 @@ class ClassificationPromptTest {
         assertThat(prompt).contains(
             "If applicable rules assign different categories, return \"Uncategorized\".");
         assertThat(prompt).contains("additional classification context only");
+    }
+
+    @Test
+    void categoryOnlyPromptAsksOnlyForTheCategoryFromDescriptionItemsAndReceiptText() {
+        String prompt = ClassificationPrompt.buildCategoryOnlyPrompt(
+            "Corner shop",
+            List.of(new ClassifiedSpend.ClassifiedItem("Milk", new BigDecimal("4.50"))),
+            "TOTAL 42.50",
+            CATEGORIES,
+            List.of()
+        );
+
+        assertThat(prompt).contains("Corner shop").contains("Milk").contains("4.50").contains("TOTAL 42.50");
+        assertThat(prompt).contains("- Comida: Food and drink: supermarkets, restaurants.");
+        assertThat(prompt).contains("category");
+        assertThat(prompt).doesNotContain("amount (number)").doesNotContain("date (string");
+    }
+
+    @Test
+    void categoryOnlyPromptIncludesTheUsersRules() {
+        String prompt = ClassificationPrompt.buildCategoryOnlyPrompt(
+            "Shop", List.of(), "text", CATEGORIES, List.of(rule("uber", "Transporte"))
+        );
+
+        assertThat(prompt).contains("If the spend contains \"uber\", classify it as Transporte.");
     }
 }

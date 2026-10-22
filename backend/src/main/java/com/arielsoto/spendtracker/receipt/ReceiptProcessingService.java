@@ -8,6 +8,7 @@ import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
 import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
+import com.arielsoto.spendtracker.queue.SpendMessage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.spend.SpendRepository;
@@ -191,6 +192,64 @@ public class ReceiptProcessingService {
             }
             throw e;
         }
+    }
+
+    /** Routes an enrichment queue message to full or category-only Enrichment. */
+    public void processEnrichmentMessage(SpendMessage message, boolean lastAttempt) {
+        if (message.categoryOnly()) {
+            processCategoryOnlyEnrichment(message.spendId(), lastAttempt);
+        } else {
+            processEnrichment(message.spendId(), lastAttempt);
+        }
+    }
+
+    /**
+     * Category-only Enrichment, run by the enrichment queue worker for Reclassify. Recalculates just
+     * the Category from the current description, items and raw text; amount, date, description,
+     * items and the stored Bedrock response are never touched.
+     *
+     * Reclassify puts a PROCESSED Spend back in PROCESSING, so any other status is a duplicate or
+     * stale message and is dropped. Because the Spend already holds good (possibly user-edited) data,
+     * giving up never marks it FAILED: on the last attempt, or when the AI quota is gone, it goes
+     * back to PROCESSED with its old Category. Before the last attempt it stays PROCESSING and the
+     * failure is rethrown so SQS redelivers.
+     */
+    public void processCategoryOnlyEnrichment(UUID spendId, boolean lastAttempt) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend == null || spend.getStatus() != SpendStatus.PROCESSING) {
+            log.info("receipt_category_only_dropped spendId={} status={}",
+                spendId, spend == null ? "MISSING" : spend.getStatus());
+            return;
+        }
+
+        try {
+            ReceiptMetadata metadata = spend.getReceiptMetadata();
+            if (metadata == null || metadata.getRawOcrText() == null) {
+                throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
+            }
+            String category = enrichmentService.reclassify(
+                spend.getUser(), spend.getDescription(), spend.getItems(), metadata.getRawOcrText()
+            );
+            spend.setCategory(categoryFor(category));
+            metadata.setClassifiedAt(LocalDateTime.now());
+            spend.setStatus(SpendStatus.PROCESSED);
+            spendRepository.save(spend);
+        } catch (AiUsageLimitExceededException e) {
+            log.warn("receipt_category_only_ai_limit_exceeded spendId={} resourceType={}",
+                spendId, e.getResourceType());
+            restoreProcessed(spend);
+        } catch (RuntimeException e) {
+            log.error("receipt_category_only_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            if (lastAttempt) {
+                restoreProcessed(spend);
+            }
+            throw e;
+        }
+    }
+
+    private void restoreProcessed(Spend spend) {
+        spend.setStatus(SpendStatus.PROCESSED);
+        spendRepository.save(spend);
     }
 
     // Everything is set on the loaded Spend and saved once, so the data and PROCESSED land together.
