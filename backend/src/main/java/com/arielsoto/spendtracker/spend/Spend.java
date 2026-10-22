@@ -51,6 +51,13 @@ public class Spend {
     @Column(name = "spend_date", nullable = false)
     private LocalDate spendDate;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SpendStatus status;
+
+    @Column(name = "status_changed_at", nullable = false)
+    private LocalDateTime statusChangedAt;
+
     @OneToOne(mappedBy = "spend", cascade = CascadeType.ALL, orphanRemoval = true)
     private ReceiptMetadata receiptMetadata;
 
@@ -62,6 +69,18 @@ public class Spend {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    public void setStatus(SpendStatus status) {
+        this.status = status;
+        this.statusChangedAt = LocalDateTime.now();
+    }
+
+    @PrePersist
+    void initStatusChangedAt() {
+        if (statusChangedAt == null) {
+            statusChangedAt = LocalDateTime.now();
+        }
+    }
 
     public String receiptUrl() {
         String receiptUrl = null;

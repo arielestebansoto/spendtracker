@@ -24,6 +24,9 @@ public class Category {
     @Column(nullable = false, unique = true, length = 100)
     private String name;
 
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

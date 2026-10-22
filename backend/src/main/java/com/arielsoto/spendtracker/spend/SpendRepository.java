@@ -46,16 +46,19 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         SELECT COALESCE(SUM(s.amount), 0)
         FROM Spend s
         WHERE s.user.id = :userId
+        AND s.status = :status
         AND s.spendDate BETWEEN :startDate AND :endDate
     """)
-    java.math.BigDecimal sumAmountByUserIdAndSpendDateBetween(
+    java.math.BigDecimal sumAmountByUserIdAndStatusAndSpendDateBetween(
         @Param("userId") UUID userId,
+        @Param("status") SpendStatus status,
         @Param("startDate") LocalDate startDate,
         @Param("endDate") LocalDate endDate
     );
 
-    long countByUserIdAndSpendDateBetween(
+    long countByUserIdAndStatusAndSpendDateBetween(
         UUID userId,
+        SpendStatus status,
         LocalDate startDate,
         LocalDate endDate
     );
@@ -65,10 +68,12 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         FROM Spend s
         JOIN FETCH s.category
         WHERE s.user.id = :userId
+        AND s.status = :status
         AND s.spendDate BETWEEN :startDate AND :endDate
     """)
-    Page<Spend> findTopNByUserIdAndSpendDateBetween(
+    Page<Spend> findTopNByUserIdAndStatusAndSpendDateBetween(
         @Param("userId") UUID userId,
+        @Param("status") SpendStatus status,
         @Param("startDate") LocalDate startDate,
         @Param("endDate") LocalDate endDate,
         Pageable pageable
