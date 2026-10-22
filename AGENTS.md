@@ -78,3 +78,13 @@ cd frontend && pnpm build
 - Prefer built-in language/framework features over external libraries when possible
 - When adding a dependency, consider: maintenance status, security history, bundle size impact
 - Document any non-obvious dependency choices in commit messages or code comments
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as GitHub Issues in `arielestebansoto/spendtracker` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
