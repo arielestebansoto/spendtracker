@@ -6,6 +6,7 @@ import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
 import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
+import { isInProgress } from "@/app/lib/spendStatus";
 import Toast, { ToastVariant } from "@/app/components/Toast";
 
 type Category = { id: string; name: string };
@@ -32,6 +33,7 @@ export default function EditSpendPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [isSpendInProgress, setIsSpendInProgress] = useState(false);
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export default function EditSpendPage() {
         if (!spendRes.ok) throw new Error("Not found");
 
         const spend = await spendRes.json();
+        setIsSpendInProgress(isInProgress(spend.status));
         setForm({
           categoryId: spend.categoryId,
           description: spend.description ?? "",
@@ -142,6 +145,13 @@ export default function EditSpendPage() {
   if (authLoading || !user) return <LoadingState />;
   if (error) return <ErrorState message="Could not load spend." onRetry={() => router.refresh()} />;
   if (isLoading || !form) return <LoadingState />;
+  if (isSpendInProgress) {
+    return (
+      <ErrorState
+        message="This receipt is still being processed. You can edit the spend once it is done."
+      />
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">

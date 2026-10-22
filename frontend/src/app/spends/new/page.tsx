@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
-import { createSpendFromReceipt } from "@/app/lib/receipt";
+import { createSpendFromReceipt, ReceiptQuotaError } from "@/app/lib/receipt";
 import LoadingState from "@/app/components/LoadingState";
 import ReceiptUpload from "@/app/components/ReceiptUpload";
 
@@ -84,11 +84,15 @@ export default function NewSpendPage() {
     setSubmitError("");
 
     try {
-      const created = await createSpendFromReceipt(file, form.categoryId || undefined);
+      const created = await createSpendFromReceipt(file);
       router.push(`/spends/${created.id}`);
-    } catch {
+    } catch (error) {
       setStatus("error");
-      setSubmitError("Failed to process receipt. Please try again or enter details manually.");
+      setSubmitError(
+        error instanceof ReceiptQuotaError
+          ? "You have no AI quota left to read receipts. Enter the details manually instead."
+          : "Failed to upload receipt. Please try again or enter details manually."
+      );
     }
   }
 
