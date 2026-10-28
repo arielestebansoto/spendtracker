@@ -9,17 +9,20 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
 import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendListItemResponse;
 import com.arielsoto.spendtracker.spend.dto.UpdateSpendRequest;
-import com.arielsoto.spendtracker.storage.StoredFile;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.transaction.Transactional;
@@ -31,6 +34,8 @@ public class SpendService {
 
     private final SpendRepository spendRepository;
     private final CategoryRepository categoryRepository;
+    private final SpendReceiptStorageService storageService;
+    private final ReceiptQueuePublisher queuePublisher;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -40,16 +45,7 @@ public class SpendService {
             .findByIdAndUserId(id, userId)
             .orElseThrow();
 
-        return new SpendDetailResponse(
-            spend.getId(),
-            spend.getCategory().getId(),
-            spend.getCategory().getName(),
-            spend.getDescription(),
-            spend.getAmount(),
-            spend.getSpendDate(),
-            spend.getCreatedAt(),
-            spend.receiptUrl()
-        );
+        return toDetailResponse(spend);
     }
 
     public Page<SpendListItemResponse> findAllByUserId(
@@ -58,15 +54,7 @@ public class SpendService {
     ) {
         return spendRepository
             .findAllByUserId(userId, pageable)
-            .map( s -> {
-                return new SpendListItemResponse(
-                    s.getId(),
-                    s.getCategory().getName(),
-                    s.getAmount(),
-                    s.getSpendDate(),
-                    s.getDescription()
-                );
-            });
+            .map(this::toListItemResponse);
     }
 
     public Page<SpendListItemResponse> findByFilters(
@@ -86,13 +74,7 @@ public class SpendService {
 
         return spendRepository
             .findAll(spec, pageable)
-            .map(s -> new SpendListItemResponse(
-                s.getId(),
-                s.getCategory().getName(),
-                s.getAmount(),
-                s.getSpendDate(),
-                s.getDescription()
-            ));
+            .map(this::toListItemResponse);
     }
 
     public CreateSpendResponse create(
@@ -108,6 +90,7 @@ public class SpendService {
             .description(request.description())
             .amount(request.amount())
             .spendDate(request.spendDate())
+            .status(SpendStatus.PROCESSED)
             .build();
 
         Spend saved = spendRepository.save(spend);
@@ -118,7 +101,8 @@ public class SpendService {
             saved.getCategory().getName(),
             saved.getDescription(),
             saved.getAmount(),
-            saved.getSpendDate()
+            saved.getSpendDate(),
+            saved.getStatus()
         );
     }
 
@@ -133,6 +117,8 @@ public class SpendService {
             .findByIdAndUserId(id, userId)
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
+        rejectIfInProgress(spend);
+
         Category category = resolveCategory(request.categoryId());
 
         spend.setCategory(category);
@@ -140,16 +126,42 @@ public class SpendService {
         spend.setAmount(request.amount());
         spend.setSpendDate(request.spendDate());
 
-        return new SpendDetailResponse(
-            spend.getId(),
-            spend.getCategory().getId(),
-            spend.getCategory().getName(),
-            spend.getDescription(),
-            spend.getAmount(),
-            spend.getSpendDate(),
-            spend.getCreatedAt(),
-            spend.receiptUrl()
-        );
+        return toDetailResponse(spend);
+    }
+
+    /**
+     * Reclassify: recalculates only the Category of a Spend with a Receipt. The Spend goes back to
+     * PROCESSING until the category-only Enrichment finishes, which locks it against edits so the
+     * background result cannot overwrite them.
+     */
+    public SpendDetailResponse reclassify(UUID id, UUID userId) {
+        Spend spend = spendRepository
+            .findByIdAndUserId(id, userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Spend not found"));
+
+        if (spend.getReceiptKey() == null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Only a spend with a receipt can be reclassified"
+            );
+        }
+        rejectIfInProgress(spend);
+        if (spend.getStatus() == SpendStatus.FAILED) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "A failed spend must be retried, not reclassified"
+            );
+        }
+
+        spend.setStatus(SpendStatus.PROCESSING);
+        spendRepository.save(spend);
+        try {
+            queuePublisher.publishForCategoryOnlyEnrichment(spend.getId());
+        } catch (RuntimeException e) {
+            spend.setStatus(SpendStatus.PROCESSED);
+            spendRepository.save(spend);
+            throw e;
+        }
+
+        return toDetailResponse(spend);
     }
 
     @Transactional
@@ -162,6 +174,10 @@ public class SpendService {
             .orElseThrow(() -> new RuntimeException("Spend not found"));
 
         spendRepository.delete(spend);
+
+        if (spend.getReceiptKey() != null) {
+            storageService.deleteFile(spend.getReceiptKey());
+        }
     }
 
     @Transactional
@@ -180,27 +196,25 @@ public class SpendService {
         int recentLimit
     ) {
         BigDecimal total = spendRepository
-            .sumAmountByUserIdAndSpendDateBetween(userId, startDate, endDate);
+            .sumAmountByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate
+            );
 
         long count = spendRepository
-            .countByUserIdAndSpendDateBetween(userId, startDate, endDate);
+            .countByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate
+            );
 
         BigDecimal average = count > 0
             ? total.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP)
             : BigDecimal.ZERO;
 
         List<SpendListItemResponse> recentSpends = spendRepository
-            .findTopNByUserIdAndSpendDateBetween(
-                userId, startDate, endDate,
+            .findTopNByUserIdAndStatusAndSpendDateBetween(
+                userId, SpendStatus.PROCESSED, startDate, endDate,
                 PageRequest.of(0, recentLimit)
             )
-            .map(s -> new SpendListItemResponse(
-                s.getId(),
-                s.getCategory().getName(),
-                s.getAmount(),
-                s.getSpendDate(),
-                s.getDescription()
-            ))
+            .map(this::toListItemResponse)
             .getContent();
 
         return new DashboardSummaryResponse(
@@ -208,33 +222,37 @@ public class SpendService {
         );
     }
 
-    public CreateSpendResponse createWithReceipt(
-        CreateSpendRequest request,
-        UserApp user,
-        StoredFile storedFile
-    ) {
-        Category category = resolveCategory(request.categoryId());
-
-        Spend spend = Spend.builder()
-            .user(user)
-            .category(category)
-            .description(request.description())
-            .amount(request.amount())
-            .spendDate(request.spendDate())
-            .receiptKey(storedFile.key())
-            .receiptContentType(storedFile.contentType())
-            .build();
-
-        Spend saved = spendRepository.save(spend);
-
-        return new CreateSpendResponse(
-            saved.getId(),
-            saved.getCategory().getId(),
-            saved.getCategory().getName(),
-            saved.getDescription(),
-            saved.getAmount(),
-            saved.getSpendDate()
+    private SpendDetailResponse toDetailResponse(Spend spend) {
+        return new SpendDetailResponse(
+            spend.getId(),
+            spend.getCategory().getId(),
+            spend.getCategory().getName(),
+            spend.getDescription(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getCreatedAt(),
+            spend.receiptUrl(),
+            spend.getStatus()
         );
+    }
+
+    private SpendListItemResponse toListItemResponse(Spend spend) {
+        return new SpendListItemResponse(
+            spend.getId(),
+            spend.getCategory().getName(),
+            spend.getAmount(),
+            spend.getSpendDate(),
+            spend.getDescription(),
+            spend.getStatus()
+        );
+    }
+
+    private void rejectIfInProgress(Spend spend) {
+        if (spend.getStatus().isInProgress()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "The spend is being processed and cannot be changed yet"
+            );
+        }
     }
 
     private Category resolveCategory(UUID categoryId) {

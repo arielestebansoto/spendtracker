@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
 import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
+import SpendStatusBadge from "@/app/components/SpendStatusBadge";
+import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
+import { retrySpend } from "@/app/lib/retrySpend";
 
 type SpendDetail = {
   id: string;
@@ -15,6 +18,7 @@ type SpendDetail = {
   amount: number;
   spendDate: string;
   receiptUrl: string | null;
+  status: SpendStatus;
 };
 
 function formatCurrency(amount: number) {
@@ -60,6 +64,10 @@ export default function ViewSpendPage() {
     }
   }, []);
 
+  // Each poll bumps this counter, which re-runs the fetch below.
+  const [pollCount, setPollCount] = useState(0);
+  const receiptRequestedRef = useRef(false);
+
   useEffect(() => {
     async function load() {
       try {
@@ -67,15 +75,57 @@ export default function ViewSpendPage() {
         if (!response.ok) throw new Error("Not found");
         const data: SpendDetail = await response.json();
         setSpend(data);
-        if (data.receiptUrl) fetchReceipt(data.receiptUrl);
+        // The receipt URL does not change between polls, so the image is fetched only once.
+        if (data.receiptUrl && !receiptRequestedRef.current) {
+          receiptRequestedRef.current = true;
+          fetchReceipt(data.receiptUrl);
+        }
       } catch {
-        setError(true);
+        // A failed background refresh keeps the current data; the next poll tries again.
+        if (pollCount === 0) setError(true);
       } finally {
         setIsLoading(false);
       }
     }
     if (user) load();
-  }, [user, spendId, fetchReceipt]);
+  }, [user, spendId, fetchReceipt, pollCount]);
+
+  // Reclassify only recalculates the Category. The Spend comes back in progress, which locks it
+  // and starts the polling below until it is PROCESSED again.
+  const [isReclassifying, setIsReclassifying] = useState(false);
+  const [reclassifyError, setReclassifyError] = useState(false);
+
+  async function reclassify() {
+    setIsReclassifying(true);
+    setReclassifyError(false);
+    try {
+      const response = await apiFetch(`/api/v1/spends/${spendId}/reclassify`, { method: "POST" });
+      if (!response.ok) throw new Error("Reclassify failed");
+      const data: SpendDetail = await response.json();
+      setSpend(data);
+    } catch {
+      setReclassifyError(true);
+    } finally {
+      setIsReclassifying(false);
+    }
+  }
+
+  // Poll only while the Spend is still being processed.
+  usePollWhile(spend !== null && isInProgress(spend.status), () =>
+    setPollCount((count) => count + 1)
+  );
+
+  const [retryFailed, setRetryFailed] = useState(false);
+
+  async function handleRetry() {
+    setRetryFailed(false);
+    if (await retrySpend(spendId)) {
+      // Back to PENDING on screen right away; this also restarts the polling.
+      setSpend((current) => (current ? { ...current, status: "PENDING" } : current));
+    } else {
+      setRetryFailed(true);
+    }
+  }
 
   if (authLoading || !user) return <LoadingState />;
   if (error) return <ErrorState message="Could not load spend." onRetry={() => router.refresh()} />;
@@ -84,14 +134,27 @@ export default function ViewSpendPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Spend detail</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Spend detail</h1>
+          <SpendStatusBadge status={spend.status} />
+        </div>
         <div className="flex gap-2">
           <button
             onClick={() => router.push(`/spends/${spendId}/edit`)}
-            className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
+            disabled={isInProgress(spend.status)}
+            className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Edit
           </button>
+          {spend.receiptUrl && (
+            <button
+              onClick={reclassify}
+              disabled={isReclassifying || spend.status !== "PROCESSED"}
+              className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Reclassify
+            </button>
+          )}
           <button
             onClick={() => router.back()}
             className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
@@ -101,28 +164,65 @@ export default function ViewSpendPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border p-6 space-y-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Category</p>
-          <p className="text-sm font-medium mt-1">{spend.category}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Amount</p>
-          <p className="text-2xl font-bold mt-1">{formatCurrency(spend.amount)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Date</p>
-          <p className="text-sm font-medium mt-1">{formatDate(spend.spendDate)}</p>
-        </div>
-        {spend.description && (
-          <div>
-            <p className="text-sm text-muted-foreground">Description</p>
-            <p className="text-sm font-medium mt-1">{spend.description}</p>
-          </div>
-        )}
-      </div>
+      {reclassifyError && (
+        <p className="mb-4 text-sm text-destructive">
+          Could not reclassify this spend. Please try again.
+        </p>
+      )}
 
-      {spend.category === "Uncategorized" && (
+      {isInProgress(spend.status) && (
+        <div className="rounded-xl border border-border p-6">
+          <p className="text-sm font-medium">We are reading your receipt</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The amount, date, description and category will appear here when it is done. This page
+            updates by itself.
+          </p>
+        </div>
+      )}
+
+      {spend.status === "FAILED" && (
+        <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
+          <p className="text-sm font-medium text-destructive">We could not process this receipt</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The image is still saved. Retry to read it again, or delete this spend from the spends
+            list.
+          </p>
+          {retryFailed && (
+            <p className="mt-2 text-sm text-destructive">Could not retry this spend. Try again.</p>
+          )}
+          <button
+            onClick={handleRetry}
+            className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {spend.status === "PROCESSED" && (
+        <div className="rounded-xl border border-border p-6 space-y-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Category</p>
+            <p className="text-sm font-medium mt-1">{spend.category}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Amount</p>
+            <p className="text-2xl font-bold mt-1">{formatCurrency(spend.amount)}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Date</p>
+            <p className="text-sm font-medium mt-1">{formatDate(spend.spendDate)}</p>
+          </div>
+          {spend.description && (
+            <div>
+              <p className="text-sm text-muted-foreground">Description</p>
+              <p className="text-sm font-medium mt-1">{spend.description}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {spend.status === "PROCESSED" && spend.category === "Uncategorized" && (
         <div className="mt-6 rounded-xl border border-border bg-accent/50 p-4 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-medium">This spend could not be categorized</p>

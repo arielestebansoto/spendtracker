@@ -88,7 +88,7 @@ export default function ReceiptUpload({
         {isProcessing ? (
           <div className="space-y-2">
             <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
-            <p className="text-sm text-muted-foreground">Processing receipt...</p>
+            <p className="text-sm text-muted-foreground">Uploading receipt...</p>
           </div>
         ) : preview ? (
           <img

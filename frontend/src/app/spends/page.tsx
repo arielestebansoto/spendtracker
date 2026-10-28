@@ -10,6 +10,9 @@ import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
 import DeleteSpendModal from "@/app/components/DeleteSpendModal";
 import Toast, { ToastVariant } from "@/app/components/Toast";
+import SpendStatusBadge from "@/app/components/SpendStatusBadge";
+import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
+import { retrySpend } from "@/app/lib/retrySpend";
 
 type Spend = {
   id: string;
@@ -17,6 +20,7 @@ type Spend = {
   amount: number;
   spendDate: string;
   description: string;
+  status: SpendStatus;
 };
 
 type Category = {
@@ -96,10 +100,17 @@ export default function SpendsPage() {
       .catch(() => {});
   }, [user]);
 
+  // Each poll bumps this counter, which re-runs the fetch below with the same filters.
+  const [pollCount, setPollCount] = useState(0);
+  const isPollRef = useRef(false);
+
   useEffect(() => {
     if (!user) return;
 
     let cancelled = false;
+    // A failed background refresh keeps the current list; the next poll tries again.
+    const isPoll = isPollRef.current;
+    isPollRef.current = false;
 
     const params = new URLSearchParams({ page: String(currentPage) });
     if (applied.categoryId) params.set("categoryId", applied.categoryId);
@@ -123,13 +134,20 @@ export default function SpendsPage() {
         setStatus("ready");
       })
       .catch(() => {
-        if (!cancelled) setStatus("error");
+        if (!cancelled && !isPoll) setStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [user, currentPage, applied]);
+  }, [user, currentPage, applied, pollCount]);
+
+  // Poll only while at least one Spend on screen is still being processed.
+  const hasInProgress = spends.some((spend) => isInProgress(spend.status));
+  usePollWhile(hasInProgress, () => {
+    isPollRef.current = true;
+    setPollCount((count) => count + 1);
+  });
 
   const prevFiltersRef = useRef(applied);
 
@@ -194,6 +212,15 @@ export default function SpendsPage() {
     } finally {
       setIsDeleting(false);
       setDeleteTarget(null);
+    }
+  }
+
+  async function handleRetry(spend: Spend) {
+    if (await retrySpend(spend.id)) {
+      // Back to PENDING on screen right away; this also restarts the polling.
+      setSpends((prev) => prev.map((s) => (s.id === spend.id ? { ...s, status: "PENDING" } : s)));
+    } else {
+      setToast({ message: "Could not retry this spend. Try again.", variant: "error" });
     }
   }
 
@@ -386,23 +413,42 @@ export default function SpendsPage() {
                 className="flex items-center justify-between px-4 py-3 rounded-lg border border-border hover:bg-accent transition cursor-pointer"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm font-medium">{spend.category}</p>
-                    {spend.description && (
-                      <p className="text-xs text-muted-foreground truncate hidden sm:block">
-                        {spend.description}
-                      </p>
-                    )}
-                  </div>
+                  {spend.status === "PROCESSED" ? (
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-medium">{spend.category}</p>
+                      {spend.description && (
+                        <p className="text-xs text-muted-foreground truncate hidden sm:block">
+                          {spend.description}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    // Provisional values are placeholders, so only the receipt state is shown.
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-medium">Receipt</p>
+                      <SpendStatusBadge status={spend.status} />
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground mt-0.5">{formatDate(spend.spendDate)}</p>
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
+                  {spend.status === "PROCESSED" && (
+                    <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
+                  )}
                   <div className="flex gap-1">
+                    {spend.status === "FAILED" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRetry(spend); }}
+                        className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition"
+                      >
+                        Retry
+                      </button>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); router.push(`/spends/${spend.id}/edit`); }}
-                      className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition"
+                      disabled={isInProgress(spend.status)}
+                      className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Edit
                     </button>

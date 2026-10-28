@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +34,12 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
 
     Optional<Spend> findByIdAndUserId(UUID id, UUID userId);
 
+    // For queue workers, which run outside a request and need the owner and items without a lazy load.
+    @EntityGraph(attributePaths = {"user", "items"})
+    Optional<Spend> findWithUserById(UUID id);
+
+    List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
+
     boolean existsByCategoryId(UUID categoryId);
 
     List<Spend> findAllByUserIdAndSpendDateBetween(
@@ -46,16 +54,19 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         SELECT COALESCE(SUM(s.amount), 0)
         FROM Spend s
         WHERE s.user.id = :userId
+        AND s.status = :status
         AND s.spendDate BETWEEN :startDate AND :endDate
     """)
-    java.math.BigDecimal sumAmountByUserIdAndSpendDateBetween(
+    java.math.BigDecimal sumAmountByUserIdAndStatusAndSpendDateBetween(
         @Param("userId") UUID userId,
+        @Param("status") SpendStatus status,
         @Param("startDate") LocalDate startDate,
         @Param("endDate") LocalDate endDate
     );
 
-    long countByUserIdAndSpendDateBetween(
+    long countByUserIdAndStatusAndSpendDateBetween(
         UUID userId,
+        SpendStatus status,
         LocalDate startDate,
         LocalDate endDate
     );
@@ -65,10 +76,12 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         FROM Spend s
         JOIN FETCH s.category
         WHERE s.user.id = :userId
+        AND s.status = :status
         AND s.spendDate BETWEEN :startDate AND :endDate
     """)
-    Page<Spend> findTopNByUserIdAndSpendDateBetween(
+    Page<Spend> findTopNByUserIdAndStatusAndSpendDateBetween(
         @Param("userId") UUID userId,
+        @Param("status") SpendStatus status,
         @Param("startDate") LocalDate startDate,
         @Param("endDate") LocalDate endDate,
         Pageable pageable

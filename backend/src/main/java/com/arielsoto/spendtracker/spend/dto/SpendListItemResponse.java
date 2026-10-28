@@ -1,5 +1,7 @@
 package com.arielsoto.spendtracker.spend.dto;
 
+import com.arielsoto.spendtracker.spend.SpendStatus;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -9,6 +11,7 @@ public record SpendListItemResponse(
     String category,
     BigDecimal amount,
     LocalDate spendDate,
-    String description
+    String description,
+    SpendStatus status
 ) {
 }

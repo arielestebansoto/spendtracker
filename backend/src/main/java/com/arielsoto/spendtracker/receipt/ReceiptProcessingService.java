@@ -2,16 +2,18 @@ package com.arielsoto.spendtracker.receipt;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.aiusage.AiUsageService;
-import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
-import com.arielsoto.spendtracker.classifier.BedrockClassificationService;
-import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
-import com.arielsoto.spendtracker.classificationrule.ClassificationRule;
-import com.arielsoto.spendtracker.classificationrule.ClassificationRuleRepository;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpend;
+import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
-import com.arielsoto.spendtracker.ocr.TextractStrategy;
-import com.arielsoto.spendtracker.spend.*;
+import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
+import com.arielsoto.spendtracker.queue.SpendMessage;
+import com.arielsoto.spendtracker.spend.Spend;
+import com.arielsoto.spendtracker.spend.SpendItem;
+import com.arielsoto.spendtracker.spend.SpendRepository;
+import com.arielsoto.spendtracker.spend.SpendStatus;
+import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.storage.StoredFile;
 import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
@@ -19,276 +21,306 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Drives a Spend created from a Receipt through the asynchronous pipeline.
+ * Upload runs in the HTTP request; the Extraction and Enrichment stages run in queue workers.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReceiptProcessingService {
 
     private final SpendRepository spendRepository;
-    private final SpendItemRepository spendItemRepository;
     private final ReceiptMetadataRepository receiptMetadataRepository;
     private final CategoryRepository categoryRepository;
-    private final ClassificationRuleRepository classificationRuleRepository;
-    private final BedrockClassificationService classifierService;
+    private final ReceiptExtractionService extractionService;
+    private final ReceiptEnrichmentService enrichmentService;
     private final AiUsageService aiUsageService;
-    // Storage is optional - may not be configured in dev
-    private final com.arielsoto.spendtracker.storage.SpendReceiptStorageService storageService;
+    private final SpendReceiptStorageService storageService;
+    private final ReceiptQueuePublisher queuePublisher;
+    private final Clock clock;
 
-    public SpendProcessingResult processReceipt(
-        UserApp user,
-        MultipartFile file,
-        UUID categoryId
-    ) {
-        log.info(
-            "receipt_processing_start userId={} fileName={} fileSize={} contentType={} categoryId={}",
-            user.getId(),
-            file.getOriginalFilename(),
-            file.getSize(),
-            file.getContentType(),
-            categoryId
-        );
-
-        long startTime = System.currentTimeMillis();
-
+    /**
+     * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
+     * provisional values and queues it for Extraction. Nothing is created if validation fails.
+     */
+    public Spend uploadReceipt(UserApp user, MultipartFile file) {
         ReceiptValidator.validate(file);
-
-        Category category = resolveCategory(categoryId);
+        aiUsageService.validateAndPickStrategy(user);
+        aiUsageService.validateBedrockUsage(user);
 
         Spend spend = Spend.builder()
             .user(user)
-            .category(category)
+            .category(uncategorized())
             .description("Processing receipt...")
             .amount(BigDecimal.ZERO)
             .spendDate(LocalDate.now())
+            .status(SpendStatus.PENDING)
             .build();
         spend = spendRepository.save(spend);
 
-        StoredFile storedFile = null;
-
         try {
-            // Step 1: Store file in S3
-            long storageStart = System.currentTimeMillis();
-            storedFile = storageService.store(user, spend.getId(), file);
+            StoredFile storedFile = storageService.store(user, spend.getId(), file);
             spend.setReceiptKey(storedFile.key());
             spend.setReceiptContentType(storedFile.contentType());
             spend = spendRepository.save(spend);
-            log.info(
-                "receipt_stored userId={} spendId={} s3Key={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                System.currentTimeMillis() - storageStart
-            );
-
-            // Step 2: Extract text with OCR
-            long ocrStart = System.currentTimeMillis();
-            TextractStrategy strategy = aiUsageService.validateAndPickStrategy(user);
-            byte[] imageBytes = file.getBytes();
-            OcrResult ocrResult = strategy.extractText(imageBytes, file.getContentType());
-            aiUsageService.recordTextractUsage(user, strategy.name());
-
-            if (!hasText(ocrResult)) {
-                TextractStrategy fallback =
-                    aiUsageService.pickFallbackStrategy(user, strategy.name());
-                if (fallback != null) {
-                    log.info(
-                        "receipt_ocr_fallback userId={} spendId={} from={} to={}",
-                        user.getId(), spend.getId(), strategy.name(), fallback.name()
-                    );
-                    OcrResult fallbackResult =
-                        fallback.extractText(imageBytes, file.getContentType());
-                    aiUsageService.recordTextractUsage(user, fallback.name());
-                    if (hasText(fallbackResult)) {
-                        strategy = fallback;
-                        ocrResult = fallbackResult;
-                    }
-                }
-            }
-
-            if (!hasText(ocrResult)) {
-                throw new ReceiptProcessingException(
-                    "OCR returned empty text — check Textract permissions and image quality"
-                );
-            }
-
-            log.debug(
-                "receipt_ocr_raw_text userId={} spendId={} confidence={}\n{}",
-                user.getId(),
-                spend.getId(),
-                ocrResult.confidence(),
-                ocrResult.rawText()
-            );
-            log.info(
-                "receipt_ocr_success userId={} spendId={} s3Key={} strategy={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                strategy.name(),
-                System.currentTimeMillis() - ocrStart
-            );
-
-            // Step 3: Classify with Bedrock
-            long classifyStart = System.currentTimeMillis();
-            aiUsageService.validateBedrockUsage(user);
-            List<ClassificationRule> rules = classificationRuleRepository
-                .findByUserIdOrderByCreatedAtAsc(user.getId());
-            ClassifiedSpendResult bcResult = classifierService.classify(ocrResult.rawText(), rules);
-            aiUsageService.recordBedrockUsage(
-                user, bcResult.inputTokens(), bcResult.outputTokens()
-            );
-            ClassifiedSpend classified = bcResult.classified();
-
-            if (classified.amount() == null || classified.amount().compareTo(BigDecimal.ZERO) == 0) {
-                throw new ReceiptProcessingException(
-                    "Classification returned no amount — model could not extract data from receipt"
-                );
-            }
-
-            log.info(
-                "receipt_classification_success userId={} spendId={} s3Key={} category={} totalAmount={} durationMs={}",
-                user.getId(),
-                spend.getId(),
-                storedFile.key(),
-                classified.category(),
-                classified.amount(),
-                System.currentTimeMillis() - classifyStart
-            );
-
-            // Step 4: Save full spend
-            SpendProcessingResult result = saveClassifiedSpend(
-                user, spend, category, ocrResult, classified
-            );
-
-            log.info(
-                "receipt_processing_complete userId={} spendId={} status={} totalMs={}",
-                user.getId(),
-                result.spend().getId(),
-                result.status(),
-                System.currentTimeMillis() - startTime
-            );
-
-            return result;
-
-        } catch (AiUsageLimitExceededException e) {
-            log.warn("receipt_processing_ai_limit_exceeded userId={} spendId={} resourceType={}",
-                user.getId(), spend.getId(), e.getResourceType());
-            rollback(user, spend, storedFile);
+        } catch (RuntimeException e) {
+            spendRepository.delete(spend);
             throw e;
-        } catch (ReceiptProcessingException e) {
-            log.error("receipt_processing_failed userId={} spendId={} reason={}",
-                user.getId(), spend.getId(), e.getMessage());
-            rollback(user, spend, storedFile);
-            throw e;
-        } catch (Exception e) {
-            log.error("receipt_processing_failed userId={} spendId={}",
-                user.getId(), spend.getId(), e);
-            rollback(user, spend, storedFile);
-            throw new ReceiptProcessingException(
-                "We cannot process this receipt right now. Please try again later.", e
-            );
-        }
-    }
-
-    private boolean hasText(OcrResult result) {
-        return result.rawText() != null && !result.rawText().isBlank();
-    }
-
-    private SpendProcessingResult saveClassifiedSpend(
-        UserApp user,
-        Spend spend,
-        Category category,
-        OcrResult ocrResult,
-        ClassifiedSpend classified
-    ) {
-        Category resolvedCategory = category;
-        if (classified.category() != null) {
-            resolvedCategory = categoryRepository
-                .findByName(classified.category())
-                .orElse(category);
         }
 
-        spend.setCategory(resolvedCategory);
-        spend.setAmount(classified.amount());
-        spend.setSpendDate(
-            classified.date() != null ? classified.date() : LocalDate.now()
-        );
-        spend.setDescription(
-            classified.description() != null ? classified.description() : "Receipt"
-        );
+        try {
+            queuePublisher.publishForExtraction(spend.getId());
+        } catch (RuntimeException e) {
+            log.error("receipt_upload_publish_failed userId={} spendId={}", user.getId(), spend.getId(), e);
+            spend.setStatus(SpendStatus.FAILED);
+            spend = spendRepository.save(spend);
+        }
+
+        log.info("receipt_uploaded userId={} spendId={} status={}", user.getId(), spend.getId(), spend.getStatus());
+        return spend;
+    }
+
+    /**
+     * Retries a FAILED Spend: puts it back to PENDING and queues it for Extraction again, so the
+     * whole pipeline restarts. Any other status is rejected. If queueing fails the Spend goes back
+     * to FAILED, so it never sits in PENDING without a message, and the error is reported.
+     */
+    public Spend retry(UserApp user, UUID spendId) {
+        Spend spend = spendRepository.findByIdAndUserId(spendId, user.getId()).orElseThrow();
+        if (spend.getStatus() != SpendStatus.FAILED) {
+            throw new SpendNotRetryableException(spend.getStatus());
+        }
+
+        spend.setStatus(SpendStatus.PENDING);
         spend = spendRepository.save(spend);
 
-        ReceiptMetadata metadata = ReceiptMetadata.builder()
-            .spend(spend)
-            .rawOcrText(ocrResult.rawText())
-            .ocrConfidence(ocrResult.confidence())
-            .classifiedAt(LocalDateTime.now())
-            .processingStatus(SpendProcessingResult.ProcessingStatus.SUCCESS.name())
-            .createdAt(LocalDateTime.now())
-            .build();
-        receiptMetadataRepository.save(metadata);
-
-        List<SpendItem> items = new ArrayList<>();
-        if (classified.items() != null && !classified.items().isEmpty()) {
-            int position = 0;
-            for (ClassifiedSpend.ClassifiedItem item : classified.items()) {
-                SpendItem spendItem = SpendItem.builder()
-                    .spend(spend)
-                    .description(item.description())
-                    .amount(item.amount())
-                    .position(position++)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-                items.add(spendItem);
-            }
-            spendItemRepository.saveAll(items);
+        try {
+            queuePublisher.publishForExtraction(spendId);
+        } catch (RuntimeException e) {
+            log.error("receipt_retry_publish_failed userId={} spendId={}", user.getId(), spendId, e);
+            spend.setStatus(SpendStatus.FAILED);
+            spendRepository.save(spend);
+            throw e;
         }
 
-        return new SpendProcessingResult(
-            spend,
-            items,
-            SpendProcessingResult.ProcessingStatus.SUCCESS,
-            null
+        log.info("receipt_retried userId={} spendId={}", user.getId(), spendId);
+        return spend;
+    }
+
+    /**
+     * Extraction stage, run by the extraction queue worker. Moves the Spend to PROCESSING, reads
+     * the image into raw text, stores it and queues the Spend for Enrichment.
+     *
+     * A message for a missing Spend, or one not in PENDING, is a duplicate or stale delivery and
+     * is dropped. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
+     * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
+     * Running out of AI quota is not retried: SQS cannot fix it.
+     */
+    public void processExtraction(UUID spendId, boolean lastAttempt) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend == null || spend.getStatus() != SpendStatus.PENDING) {
+            log.info("receipt_extraction_dropped spendId={} status={}",
+                spendId, spend == null ? "MISSING" : spend.getStatus());
+            return;
+        }
+
+        spend.setStatus(SpendStatus.PROCESSING);
+        spendRepository.save(spend);
+
+        try {
+            OcrResult ocrResult = extractionService.extract(
+                spend.getUser(), spendId, loadImage(spend), spend.getReceiptContentType()
+            );
+            saveRawText(spend, ocrResult);
+            queuePublisher.publishForEnrichment(spendId);
+        } catch (AiUsageLimitExceededException e) {
+            log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
+                spendId, e.getResourceType());
+            spend.setStatus(SpendStatus.FAILED);
+            spendRepository.save(spend);
+        } catch (RuntimeException e) {
+            log.error("receipt_extraction_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            spend.setStatus(lastAttempt ? SpendStatus.FAILED : SpendStatus.PENDING);
+            spendRepository.save(spend);
+            throw e;
+        }
+    }
+
+    /**
+     * Enrichment stage, run by the enrichment queue worker. Turns the stored raw text into the
+     * Spend's amount, date, description, items and Category, keeps the full Bedrock response and
+     * marks the Spend PROCESSED. The AI quota is checked again here.
+     *
+     * A message for a missing Spend, one not in PROCESSING, or one already enriched (a late duplicate
+     * of a message that was already handled, now seen while a Reclassify runs) is a duplicate or
+     * stale delivery and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
+     * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
+     * Running out of AI quota is not retried: SQS cannot fix it.
+     */
+    public void processEnrichment(UUID spendId, boolean lastAttempt) {
+        runEnrichment(spendId, lastAttempt, false);
+    }
+
+    /** Routes an enrichment queue message to full or category-only Enrichment. */
+    public void processEnrichmentMessage(SpendMessage message, boolean lastAttempt) {
+        if (message.categoryOnly()) {
+            processCategoryOnlyEnrichment(message.spendId(), lastAttempt);
+        } else {
+            processEnrichment(message.spendId(), lastAttempt);
+        }
+    }
+
+    /**
+     * Category-only Enrichment, run by the enrichment queue worker for Reclassify. Recalculates just
+     * the Category from the current description, items and raw text; amount, date, description,
+     * items and the stored Bedrock response are never touched.
+     *
+     * Reclassify puts an enriched PROCESSED Spend back in PROCESSING, so any other status, or a Spend
+     * not enriched yet (for example a Retry awaiting full Enrichment), is a duplicate or stale message
+     * and is dropped. Because the Spend already holds good (possibly user-edited) data,
+     * giving up never marks it FAILED: on the last attempt, or when the AI quota is gone, it goes
+     * back to PROCESSED with its old Category. Before the last attempt it stays PROCESSING and the
+     * failure is rethrown so SQS redelivers.
+     */
+    public void processCategoryOnlyEnrichment(UUID spendId, boolean lastAttempt) {
+        runEnrichment(spendId, lastAttempt, true);
+    }
+
+    // Shared by full and category-only Enrichment: they differ in what they apply and in how they give up.
+    private void runEnrichment(UUID spendId, boolean lastAttempt, boolean categoryOnly) {
+        String event = categoryOnly ? "receipt_category_only" : "receipt_enrichment";
+        Spend spend = findForEnrichment(spendId, categoryOnly, event);
+        if (spend == null) {
+            return;
+        }
+
+        try {
+            String rawText = rawTextOf(spend);
+            if (categoryOnly) {
+                applyCategoryOnly(spend, rawText);
+            } else {
+                applyEnrichment(spend, enrichmentService.enrich(spend.getUser(), rawText));
+            }
+            spendRepository.save(spend);
+        } catch (AiUsageLimitExceededException e) {
+            log.warn(event + "_ai_limit_exceeded spendId={} resourceType={}", spendId, e.getResourceType());
+            giveUp(spend, categoryOnly);
+        } catch (RuntimeException e) {
+            log.error(event + "_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
+            if (lastAttempt) {
+                giveUp(spend, categoryOnly);
+            }
+            throw e;
+        }
+    }
+
+    // Returns the Spend if the message is current, or null (logged) for a missing, duplicate or stale one.
+    private Spend findForEnrichment(UUID spendId, boolean categoryOnly, String event) {
+        Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
+        if (spend != null && spend.getStatus() == SpendStatus.PROCESSING && isEnriched(spend) == categoryOnly) {
+            return spend;
+        }
+        log.info(event + "_dropped spendId={} status={}", spendId, spend == null ? "MISSING" : spend.getStatus());
+        return null;
+    }
+
+    private String rawTextOf(Spend spend) {
+        ReceiptMetadata metadata = spend.getReceiptMetadata();
+        if (metadata == null || metadata.getRawOcrText() == null) {
+            throw new ReceiptProcessingException("No raw OCR text stored for the receipt");
+        }
+        return metadata.getRawOcrText();
+    }
+
+    private void applyCategoryOnly(Spend spend, String rawText) {
+        String category = enrichmentService.reclassify(
+            spend.getUser(), spend.getDescription(), spend.getItems(), rawText
         );
+        spend.setCategory(categoryFor(category));
+        spend.getReceiptMetadata().setClassifiedAt(LocalDateTime.now(clock));
+        spend.setStatus(SpendStatus.PROCESSED);
     }
 
-    private void rollback(UserApp user, Spend spend, StoredFile storedFile) {
-        try {
-            if (storedFile != null) {
-                storageService.deleteFile(storedFile.key());
-                log.info("rollback_s3_delete spendId={} s3Key={}", spend.getId(), storedFile.key());
-            }
-        } catch (Exception e) {
-            log.warn("rollback_s3_delete_failed spendId={} s3Key={}", spend.getId(),
-                storedFile != null ? storedFile.key() : null, e);
+    // A Spend that was never enriched is FAILED; an enriched one keeps its data and goes back to PROCESSED.
+    private void giveUp(Spend spend, boolean categoryOnly) {
+        spend.setStatus(categoryOnly ? SpendStatus.PROCESSED : SpendStatus.FAILED);
+        spendRepository.save(spend);
+    }
+
+    // Full Enrichment sets classifiedAt, and Extraction clears it, so it tells which kind of message is current.
+    private boolean isEnriched(Spend spend) {
+        ReceiptMetadata metadata = spend.getReceiptMetadata();
+        return metadata != null && metadata.getClassifiedAt() != null;
+    }
+
+    // Everything is set on the loaded Spend and saved once, so the data and PROCESSED land together.
+    private void applyEnrichment(Spend spend, ClassifiedSpendResult result) {
+        ClassifiedSpend classified = result.classified();
+        spend.setAmount(classified.amount());
+        spend.setDescription(classified.description());
+        if (classified.date() != null) {
+            spend.setSpendDate(classified.date());
+        }
+        spend.setCategory(categoryFor(classified.category()));
+
+        spend.getItems().clear();
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<ClassifiedSpend.ClassifiedItem> items = classified.items();
+        for (int position = 0; position < items.size(); position++) {
+            spend.getItems().add(SpendItem.builder()
+                .spend(spend)
+                .description(items.get(position).description())
+                .amount(items.get(position).amount())
+                .position(position)
+                .createdAt(now)
+                .build());
         }
 
+        spend.getReceiptMetadata().setRawResponse(result.rawResponse());
+        spend.getReceiptMetadata().setClassifiedAt(now);
+        spend.setStatus(SpendStatus.PROCESSED);
+    }
+
+    private Category categoryFor(String name) {
+        if (name == null) {
+            return uncategorized();
+        }
+        return categoryRepository.findByName(name).orElseGet(this::uncategorized);
+    }
+
+    private byte[] loadImage(Spend spend) {
         try {
-            spendItemRepository.deleteBySpendId(spend.getId());
-            receiptMetadataRepository.deleteBySpendId(spend.getId());
-            spendRepository.deleteById(spend.getId());
-            log.info("rollback_db_delete spendId={}", spend.getId());
-        } catch (Exception e) {
-            log.warn("rollback_db_delete_failed spendId={}", spend.getId(), e);
+            return storageService.getResource(spend.getReceiptKey()).getContentAsByteArray();
+        } catch (IOException e) {
+            throw new ReceiptProcessingException("Cannot read the receipt image", e);
         }
     }
 
-    private Category resolveCategory(UUID categoryId) {
-        if (categoryId != null) {
-            return categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException(
-                    "Category not found: " + categoryId
-                ));
-        }
+    private void saveRawText(Spend spend, OcrResult ocrResult) {
+        ReceiptMetadata metadata = receiptMetadataRepository.findBySpendId(spend.getId())
+            .orElseGet(() -> ReceiptMetadata.builder()
+                .spend(spend)
+                .createdAt(LocalDateTime.now(clock))
+                .build());
+        metadata.setRawOcrText(ocrResult.rawText());
+        metadata.setOcrConfidence(ocrResult.confidence());
+        // A Retry re-runs Extraction, so any earlier Enrichment result no longer applies.
+        metadata.setClassifiedAt(null);
+        metadata.setRawResponse(null);
+        receiptMetadataRepository.save(metadata);
+    }
+
+    private Category uncategorized() {
         return categoryRepository.findByName("Uncategorized")
-            .orElseThrow(() -> new RuntimeException(
-                "Default 'Uncategorized' category not found"
-            ));
+            .orElseThrow(() -> new RuntimeException("Default 'Uncategorized' category not found"));
     }
 }
