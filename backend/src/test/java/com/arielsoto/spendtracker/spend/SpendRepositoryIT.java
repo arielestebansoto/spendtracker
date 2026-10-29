@@ -8,7 +8,6 @@ import com.arielsoto.spendtracker.support.PostgresIntegrationTest;
 import com.arielsoto.spendtracker.user.OAuthProvider;
 import com.arielsoto.spendtracker.user.UserApp;
 import com.arielsoto.spendtracker.user.UserAppRepository;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -19,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -34,6 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = Replace.NONE)
 class SpendRepositoryIT extends PostgresIntegrationTest {
 
+	private static final Duration LEASE = Duration.ofSeconds(60);
+
 	@Autowired SpendRepository spendRepository;
 	@Autowired ReceiptMetadataRepository receiptMetadataRepository;
 	@Autowired UserAppRepository userRepository;
@@ -44,7 +46,7 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	void claimForExtractionClaimsAPendingSpend() {
 		Spend spend = saveSpend(SpendStatus.PENDING, null);
 
-		assertThat(spendRepository.claimForExtraction(spend.getId())).isEqualTo(1);
+		assertThat(claim(spend.getId())).isEqualTo(1);
 
 		Spend claimed = reload(spend);
 		assertThat(claimed.getStatus()).isEqualTo(SpendStatus.PROCESSING);
@@ -52,10 +54,29 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	@Test
-	void claimForExtractionClaimsASpendInterruptedDuringExtraction() {
+	void claimForExtractionResumesASpendWhoseLeaseExpired() {
 		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.EXTRACTION);
+		backdateStatusChange(spend, LEASE.plusSeconds(1));
 
-		assertThat(spendRepository.claimForExtraction(spend.getId())).isEqualTo(1);
+		assertThat(claim(spend.getId())).isEqualTo(1);
+	}
+
+	@Test
+	void claimForExtractionLeavesASpendWithALiveLeaseToItsWorker() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.EXTRACTION);
+		backdateStatusChange(spend, LEASE.minusSeconds(10));
+
+		assertThat(claim(spend.getId())).isZero();
+	}
+
+	@Test
+	void claimForExtractionRenewsTheLease() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.EXTRACTION);
+		backdateStatusChange(spend, LEASE.plusSeconds(1));
+
+		claim(spend.getId());
+
+		assertThat(claim(spend.getId())).isZero();
 	}
 
 	@Test
@@ -64,10 +85,10 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 		Spend processed = saveSpend(SpendStatus.PROCESSED, null);
 		Spend failed = saveSpend(SpendStatus.FAILED, null);
 
-		assertThat(spendRepository.claimForExtraction(enrichment.getId())).isZero();
-		assertThat(spendRepository.claimForExtraction(processed.getId())).isZero();
-		assertThat(spendRepository.claimForExtraction(failed.getId())).isZero();
-		assertThat(spendRepository.claimForExtraction(UUID.randomUUID())).isZero();
+		assertThat(claim(enrichment.getId())).isZero();
+		assertThat(claim(processed.getId())).isZero();
+		assertThat(claim(failed.getId())).isZero();
+		assertThat(claim(UUID.randomUUID())).isZero();
 	}
 
 	@Test
@@ -89,7 +110,6 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	@Test
-	@Disabled("claimForExtraction cannot tell a live worker from a dead one, see #106")
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	void onlyOneOfTwoConcurrentClaimsWins() throws Exception {
 		Spend spend = spendRepository.saveAndFlush(newSpend(SpendStatus.PENDING, null));
@@ -109,7 +129,7 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 			CountDownLatch start = new CountDownLatch(1);
 			Callable<Integer> claim = () -> {
 				start.await();
-				return spendRepository.claimForExtraction(id);
+				return claim(id);
 			};
 			Future<Integer> first = pool.submit(claim);
 			Future<Integer> second = pool.submit(claim);
@@ -118,6 +138,19 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 		} finally {
 			pool.shutdownNow();
 		}
+	}
+
+	private int claim(UUID id) {
+		LocalDateTime now = LocalDateTime.now();
+		return spendRepository.claimForExtraction(id, now, now.minus(LEASE));
+	}
+
+	private void backdateStatusChange(Spend spend, Duration age) {
+		entityManager.createQuery("UPDATE Spend s SET s.statusChangedAt = :at WHERE s.id = :id")
+			.setParameter("at", LocalDateTime.now().minus(age))
+			.setParameter("id", spend.getId())
+			.executeUpdate();
+		entityManager.clear();
 	}
 
 	private Spend saveSpend(SpendStatus status, ProcessingStage stage) {
