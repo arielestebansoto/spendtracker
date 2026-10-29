@@ -41,9 +41,10 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     Optional<Spend> findWithUserById(UUID id);
 
     /**
-     * Atomically claims a Spend for the Extraction stage: PENDING, or PROCESSING in Extraction (left by
-     * a worker that died). Returns 1 if this worker won and 0 if the Spend is not claimable, so two
-     * workers that received the same message cannot both run the stage.
+     * Atomically claims a Spend for the Extraction stage: PENDING, or PROCESSING in Extraction whose
+     * claim is older than {@code staleBefore} (a worker that died). Claiming stamps {@code now}, which
+     * renews the lease, so a live worker's Spend cannot be claimed by a second worker that got the same
+     * message. Returns 1 if this worker won and 0 if the Spend is not claimable.
      */
     @Transactional
     @Modifying
@@ -51,13 +52,18 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         UPDATE Spend s
         SET s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING,
             s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION,
-            s.statusChangedAt = CURRENT_TIMESTAMP
+            s.statusChangedAt = :now
         WHERE s.id = :id
         AND (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PENDING
             OR (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING
-                AND s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION))
+                AND s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION
+                AND s.statusChangedAt < :staleBefore))
     """)
-    int claimForExtraction(@Param("id") UUID id);
+    int claimForExtraction(
+        @Param("id") UUID id,
+        @Param("now") LocalDateTime now,
+        @Param("staleBefore") LocalDateTime staleBefore
+    );
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
 

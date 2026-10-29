@@ -25,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -48,6 +49,10 @@ public class ReceiptProcessingService {
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
     private final Clock clock;
+
+    // Shorter than the extraction queue's visibility timeout (120 s, see docs/sqs-provisioning.md), so a
+    // redelivery after a worker died can resume, but longer than the gap between duplicate deliveries.
+    private static final Duration EXTRACTION_LEASE = Duration.ofSeconds(60);
 
     /**
      * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
@@ -122,15 +127,16 @@ public class ReceiptProcessingService {
      * the image into raw text, stores it and queues the Spend for Enrichment.
      *
      * A message for a missing Spend, or one neither PENDING nor PROCESSING in the Extraction stage,
-     * is a duplicate or stale delivery and is dropped. A Spend left PROCESSING in Extraction means
-     * the worker died mid-stage, so the redelivery resumes it. The Spend is claimed with a conditional
-     * UPDATE, so if two workers get the same message only one runs the stage. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
+     * is a duplicate or stale delivery and is dropped. A Spend left PROCESSING in Extraction whose
+     * claim is older than the lease means the worker died mid-stage, so the redelivery resumes it. The
+     * Spend is claimed with a conditional UPDATE, so if two workers get the same message only one runs
+     * the stage. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
      * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processExtraction(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || !isAwaitingExtraction(spend) || spendRepository.claimForExtraction(spendId) == 0) {
+        if (spend == null || !isAwaitingExtraction(spend) || !claimForExtraction(spendId)) {
             log.info("receipt_extraction_dropped spendId={} status={}",
                 spendId, spend == null ? "MISSING" : spend.getStatus());
             return;
@@ -159,6 +165,11 @@ public class ReceiptProcessingService {
             spendRepository.save(spend);
             throw e;
         }
+    }
+
+    private boolean claimForExtraction(UUID spendId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return spendRepository.claimForExtraction(spendId, now, now.minus(EXTRACTION_LEASE)) == 1;
     }
 
     private boolean isAwaitingExtraction(Spend spend) {

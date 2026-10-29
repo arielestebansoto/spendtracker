@@ -3,6 +3,8 @@ package com.arielsoto.spendtracker.receipt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -182,7 +184,7 @@ class ReceiptProcessingServiceTest {
     // The conditional UPDATE that claims a Spend for Extraction succeeds unless a test says another worker won.
     @BeforeEach
     void claimsSucceedByDefault() {
-        lenient().when(spendRepository.claimForExtraction(any())).thenReturn(1);
+        lenient().when(spendRepository.claimForExtraction(any(), any(), any())).thenReturn(1);
     }
 
     private OcrResult ocr(String text) {
@@ -229,7 +231,7 @@ class ReceiptProcessingServiceTest {
     @Test
     void extraction_dropsTheMessageWhenAnotherWorkerClaimedTheSpendFirst() {
         Spend spend = spendIn(SpendStatus.PENDING);
-        when(spendRepository.claimForExtraction(spend.getId())).thenReturn(0);
+        when(spendRepository.claimForExtraction(eq(spend.getId()), any(), any())).thenReturn(0);
 
         service.processExtraction(spend.getId(), false);
 
