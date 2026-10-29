@@ -1,6 +1,7 @@
 package com.arielsoto.spendtracker.receipt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 
@@ -15,10 +16,13 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.spend.SpendStatus;
@@ -70,6 +74,18 @@ class StuckSpendCleanupServiceTest {
 
         assertEquals(SpendStatus.FAILED, pending.getStatus());
         assertEquals(SpendStatus.FAILED, processing.getStatus());
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProcessingStage.class)
+    void failsAStuckProcessingSpendInAnyStageAndClearsItsStage(ProcessingStage stage) {
+        Spend processing = spendIn(SpendStatus.PROCESSING, Duration.ofHours(2));
+        processing.setProcessingStage(stage);
+
+        service.failStuckSpends();
+
+        assertEquals(SpendStatus.FAILED, processing.getStatus());
+        assertNull(processing.getProcessingStage());
     }
 
     @Test

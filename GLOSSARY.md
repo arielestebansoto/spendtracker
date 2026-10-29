@@ -25,8 +25,12 @@ A user-defined condition ("if it contains X, classify as Y") that steers how a S
 _Avoid_: Filter, Mapping.
 
 **Processing status**:
-The lifecycle of a Spend as it moves through extraction and enrichment: `PENDING` (queued) → `PROCESSING` (extraction/classification running) → `PROCESSED` (complete), or `FAILED`. Only a Spend created from a Receipt goes through this lifecycle; a manually entered Spend is `PROCESSED` from the moment it is created.
+The lifecycle of a Spend as it moves through extraction and enrichment: `PENDING` (queued) → `PROCESSING` (extraction/classification running, tracked internally by its Processing stage) → `PROCESSED` (complete), or `FAILED`. Only a Spend created from a Receipt goes through this lifecycle; a manually entered Spend is `PROCESSED` from the moment it is created.
 _Avoid_: Processing state, Receipt status (status belongs to the Spend, not only to its Receipt).
+
+**Processing stage**:
+Which step of the pipeline a `PROCESSING` Spend is in: `EXTRACTION` or `ENRICHMENT`. Internal bookkeeping, never shown to users, who only see `PROCESSING`. It lets a redelivered queue message resume an interrupted step of its own without mistaking it for the other step's work. Only set while the status is `PROCESSING`; any other status clears it.
+_Avoid_: Sub-status, Phase.
 
 **Extraction**:
 The step that reads a Receipt's image into raw text. Produces source data only.

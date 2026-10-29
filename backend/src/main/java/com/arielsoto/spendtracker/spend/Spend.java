@@ -58,6 +58,10 @@ public class Spend {
     @Column(name = "status_changed_at", nullable = false)
     private LocalDateTime statusChangedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "processing_stage", length = 20)
+    private ProcessingStage processingStage;
+
     @OneToOne(mappedBy = "spend", cascade = CascadeType.ALL, orphanRemoval = true)
     private ReceiptMetadata receiptMetadata;
 
@@ -70,9 +74,13 @@ public class Spend {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    // The stage only means something while PROCESSING, so leaving that status clears it.
     public void setStatus(SpendStatus status) {
         this.status = status;
         this.statusChangedAt = LocalDateTime.now();
+        if (status != SpendStatus.PROCESSING) {
+            this.processingStage = null;
+        }
     }
 
     @PrePersist
