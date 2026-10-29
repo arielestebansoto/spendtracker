@@ -242,6 +242,7 @@ class SpendServiceTest {
         SpendDetailResponse response = spendService.reclassify(spend.getId(), spend.getUser().getId());
 
         assertThat(spend.getStatus()).isEqualTo(SpendStatus.PROCESSING);
+        assertThat(spend.getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
         assertThat(response.status()).isEqualTo(SpendStatus.PROCESSING);
         InOrder order = inOrder(spendRepository, queuePublisher);
         order.verify(spendRepository).save(spend);

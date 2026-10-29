@@ -103,7 +103,7 @@ public class SqsQueuePoller implements SmartLifecycle {
             worker.accept(spendMessage, receiveCount >= maxReceiveCount);
             delete(message);
         } catch (Exception e) {
-            log.warn("sqs_message_failed name={} spendId={} receiveCount={}", name, spendMessage.spendId(), receiveCount);
+            log.warn("sqs_message_failed name={} spendId={} receiveCount={}", name, spendMessage.spendId(), receiveCount, e);
         }
     }
 

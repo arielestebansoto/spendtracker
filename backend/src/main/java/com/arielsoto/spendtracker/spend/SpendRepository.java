@@ -6,8 +6,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -37,6 +39,25 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     // For queue workers, which run outside a request and need the owner and items without a lazy load.
     @EntityGraph(attributePaths = {"user", "items"})
     Optional<Spend> findWithUserById(UUID id);
+
+    /**
+     * Atomically claims a Spend for the Extraction stage: PENDING, or PROCESSING in Extraction (left by
+     * a worker that died). Returns 1 if this worker won and 0 if the Spend is not claimable, so two
+     * workers that received the same message cannot both run the stage.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING,
+            s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION,
+            s.statusChangedAt = CURRENT_TIMESTAMP
+        WHERE s.id = :id
+        AND (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PENDING
+            OR (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING
+                AND s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION))
+    """)
+    int claimForExtraction(@Param("id") UUID id);
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
 

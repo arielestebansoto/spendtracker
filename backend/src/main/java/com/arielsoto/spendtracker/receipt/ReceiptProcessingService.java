@@ -9,6 +9,7 @@ import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.queue.SpendMessage;
+import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
 import com.arielsoto.spendtracker.spend.SpendRepository;
@@ -120,27 +121,32 @@ public class ReceiptProcessingService {
      * Extraction stage, run by the extraction queue worker. Moves the Spend to PROCESSING, reads
      * the image into raw text, stores it and queues the Spend for Enrichment.
      *
-     * A message for a missing Spend, or one not in PENDING, is a duplicate or stale delivery and
-     * is dropped. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
+     * A message for a missing Spend, or one neither PENDING nor PROCESSING in the Extraction stage,
+     * is a duplicate or stale delivery and is dropped. A Spend left PROCESSING in Extraction means
+     * the worker died mid-stage, so the redelivery resumes it. The Spend is claimed with a conditional
+     * UPDATE, so if two workers get the same message only one runs the stage. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
      * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processExtraction(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || spend.getStatus() != SpendStatus.PENDING) {
+        if (spend == null || !isAwaitingExtraction(spend) || spendRepository.claimForExtraction(spendId) == 0) {
             log.info("receipt_extraction_dropped spendId={} status={}",
                 spendId, spend == null ? "MISSING" : spend.getStatus());
             return;
         }
 
+        // The claim already wrote this to the database; the loaded Spend mirrors it for the saves below.
         spend.setStatus(SpendStatus.PROCESSING);
-        spendRepository.save(spend);
+        spend.setProcessingStage(ProcessingStage.EXTRACTION);
 
         try {
             OcrResult ocrResult = extractionService.extract(
                 spend.getUser(), spendId, loadImage(spend), spend.getReceiptContentType()
             );
             saveRawText(spend, ocrResult);
+            spend.setProcessingStage(ProcessingStage.ENRICHMENT);
+            spendRepository.save(spend);
             queuePublisher.publishForEnrichment(spendId);
         } catch (AiUsageLimitExceededException e) {
             log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
@@ -155,12 +161,17 @@ public class ReceiptProcessingService {
         }
     }
 
+    private boolean isAwaitingExtraction(Spend spend) {
+        return spend.getStatus() == SpendStatus.PENDING
+            || (spend.getStatus() == SpendStatus.PROCESSING && spend.getProcessingStage() == ProcessingStage.EXTRACTION);
+    }
+
     /**
      * Enrichment stage, run by the enrichment queue worker. Turns the stored raw text into the
      * Spend's amount, date, description, items and Category, keeps the full Bedrock response and
      * marks the Spend PROCESSED. The AI quota is checked again here.
      *
-     * A message for a missing Spend, one not in PROCESSING, or one already enriched (a late duplicate
+     * A message for a missing Spend, one not PROCESSING in the Enrichment stage, or one already enriched (a late duplicate
      * of a message that was already handled, now seen while a Reclassify runs) is a duplicate or
      * stale delivery and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
      * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
@@ -226,11 +237,15 @@ public class ReceiptProcessingService {
     // Returns the Spend if the message is current, or null (logged) for a missing, duplicate or stale one.
     private Spend findForEnrichment(UUID spendId, boolean categoryOnly, String event) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend != null && spend.getStatus() == SpendStatus.PROCESSING && isEnriched(spend) == categoryOnly) {
+        if (spend != null && isAwaitingEnrichment(spend) && isEnriched(spend) == categoryOnly) {
             return spend;
         }
         log.info(event + "_dropped spendId={} status={}", spendId, spend == null ? "MISSING" : spend.getStatus());
         return null;
+    }
+
+    private boolean isAwaitingEnrichment(Spend spend) {
+        return spend.getStatus() == SpendStatus.PROCESSING && spend.getProcessingStage() == ProcessingStage.ENRICHMENT;
     }
 
     private String rawTextOf(Spend spend) {
@@ -317,6 +332,8 @@ public class ReceiptProcessingService {
         metadata.setClassifiedAt(null);
         metadata.setRawResponse(null);
         receiptMetadataRepository.save(metadata);
+        // The Spend removes orphans, so it must point at the metadata or saving it would delete the row.
+        spend.setReceiptMetadata(metadata);
     }
 
     private Category uncategorized() {
