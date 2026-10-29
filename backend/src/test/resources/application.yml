@@ -18,6 +18,9 @@ app:
     spend-enrichment-queue-url: http://localhost/test-spend-enrichment
     max-receive-count: 3
     polling-enabled: false
+  stuck-spend-cleanup:
+    threshold: PT15M
+    interval: PT5M
   ai-usage:
     global:
       analyze-expense-pages: 100

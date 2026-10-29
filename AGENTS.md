@@ -40,6 +40,9 @@ cd frontend && pnpm dev
 ```bash
 # Backend: run tests (--no-daemon required, see Slice 14)
 cd backend && ./gradlew test --no-daemon
+# Integration tests (`*IT`, `SpendtrackerApplicationTests`) start Postgres with Testcontainers and need
+# Docker. In WSL 2, enable Docker Desktop > Settings > Resources > WSL integration. Without Docker they
+# are skipped, not failed.
 
 # Backend: build jar
 cd backend && ./gradlew bootJar
