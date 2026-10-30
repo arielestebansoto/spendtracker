@@ -44,7 +44,9 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
      * Atomically claims a Spend for the Extraction stage: PENDING, or PROCESSING in Extraction whose
      * claim is older than {@code staleBefore} (a worker that died). Claiming stamps {@code now}, which
      * renews the lease, so a live worker's Spend cannot be claimed by a second worker that got the same
-     * message. Returns 1 if this worker won and 0 if the Spend is not claimable.
+     * message. Claiming also stores {@code claimToken}, which fences the stage's later writes
+     * ({@link #advanceToEnrichment}, {@link #releaseExtraction}). Returns 1 if this worker won and 0 if
+     * the Spend is not claimable.
      */
     @Transactional
     @Modifying
@@ -52,7 +54,8 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         UPDATE Spend s
         SET s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING,
             s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.EXTRACTION,
-            s.statusChangedAt = :now
+            s.statusChangedAt = :now,
+            s.claimToken = :claimToken
         WHERE s.id = :id
         AND (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PENDING
             OR (s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING
@@ -61,8 +64,46 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     """)
     int claimForExtraction(
         @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
         @Param("now") LocalDateTime now,
         @Param("staleBefore") LocalDateTime staleBefore
+    );
+
+    /**
+     * Moves a Spend claimed with {@code claimToken} from Extraction to Enrichment. Returns 0 if another
+     * worker has claimed it since, so a displaced worker cannot change the stage.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.ENRICHMENT,
+            s.statusChangedAt = :now
+        WHERE s.id = :id AND s.claimToken = :claimToken
+    """)
+    int advanceToEnrichment(
+        @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
+        @Param("now") LocalDateTime now
+    );
+
+    /**
+     * Ends the Extraction stage of a Spend claimed with {@code claimToken} by setting {@code status}
+     * (FAILED, or PENDING so a redelivery is accepted) and clearing the stage. Returns 0 if another
+     * worker has claimed it since, so a displaced worker cannot overwrite the current owner.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.status = :status, s.processingStage = null, s.statusChangedAt = :now
+        WHERE s.id = :id AND s.claimToken = :claimToken
+    """)
+    int releaseExtraction(
+        @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
+        @Param("status") SpendStatus status,
+        @Param("now") LocalDateTime now
     );
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);

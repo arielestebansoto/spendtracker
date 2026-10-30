@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -33,6 +34,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.aiusage.AiUsageService;
@@ -95,7 +98,8 @@ class ReceiptProcessingServiceTest {
     void setUp() {
         service = new ReceiptProcessingService(
             spendRepository, receiptMetadataRepository, categoryRepository, extractionService,
-            enrichmentService, aiUsageService, storageService, queuePublisher, clock
+            enrichmentService, aiUsageService, storageService, queuePublisher, clock,
+            new TransactionTemplate(mock(PlatformTransactionManager.class))
         );
         // The database assigns the id on first save.
         lenient().when(spendRepository.save(any(Spend.class))).thenAnswer(call -> {
@@ -181,10 +185,19 @@ class ReceiptProcessingServiceTest {
         return spend;
     }
 
-    // The conditional UPDATE that claims a Spend for Extraction succeeds unless a test says another worker won.
+    // The conditional UPDATEs of the Extraction stage succeed unless a test says another worker won.
     @BeforeEach
-    void claimsSucceedByDefault() {
-        lenient().when(spendRepository.claimForExtraction(any(), any(), any())).thenReturn(1);
+    void extractionWritesSucceedByDefault() {
+        lenient().when(spendRepository.claimForExtraction(any(), any(), any(), any())).thenReturn(1);
+        lenient().when(spendRepository.advanceToEnrichment(any(), any(), any())).thenReturn(1);
+        lenient().when(spendRepository.releaseExtraction(any(), any(), any(), any())).thenReturn(1);
+    }
+
+    // The token the worker claimed the Spend with, which every later write of the stage must carry.
+    private UUID claimTokenOf(Spend spend) {
+        ArgumentCaptor<UUID> token = ArgumentCaptor.forClass(UUID.class);
+        verify(spendRepository).claimForExtraction(eq(spend.getId()), token.capture(), any(), any());
+        return token.getValue();
     }
 
     private OcrResult ocr(String text) {
@@ -192,13 +205,15 @@ class ReceiptProcessingServiceTest {
     }
 
     @Test
-    void extraction_storesRawTextMovesToProcessingAndPublishesToEnrichmentQueue() {
+    void extraction_storesRawTextMovesToEnrichmentAndPublishesToEnrichmentQueue() {
         Spend spend = spendIn(SpendStatus.PENDING);
         when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
 
         service.processExtraction(spend.getId(), false);
 
-        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
+        UUID claimToken = claimTokenOf(spend);
+
+        verify(spendRepository).advanceToEnrichment(spend.getId(), claimToken, NOW);
         ArgumentCaptor<ReceiptMetadata> saved = ArgumentCaptor.forClass(ReceiptMetadata.class);
         verify(receiptMetadataRepository).save(saved.capture());
         assertEquals("TOTAL 10", saved.getValue().getRawOcrText());
@@ -231,7 +246,7 @@ class ReceiptProcessingServiceTest {
     @Test
     void extraction_dropsTheMessageWhenAnotherWorkerClaimedTheSpendFirst() {
         Spend spend = spendIn(SpendStatus.PENDING);
-        when(spendRepository.claimForExtraction(eq(spend.getId()), any(), any())).thenReturn(0);
+        when(spendRepository.claimForExtraction(eq(spend.getId()), any(), any(), any())).thenReturn(0);
 
         service.processExtraction(spend.getId(), false);
 
@@ -259,7 +274,9 @@ class ReceiptProcessingServiceTest {
 
         assertThrows(ReceiptProcessingException.class, () -> service.processExtraction(spend.getId(), false));
 
-        assertEquals(SpendStatus.PENDING, spend.getStatus());
+        UUID claimToken = claimTokenOf(spend);
+
+        verify(spendRepository).releaseExtraction(spend.getId(), claimToken, SpendStatus.PENDING, NOW);
         verifyNoInteractions(queuePublisher);
     }
 
@@ -271,7 +288,9 @@ class ReceiptProcessingServiceTest {
 
         assertThrows(ReceiptProcessingException.class, () -> service.processExtraction(spend.getId(), true));
 
-        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        UUID claimToken = claimTokenOf(spend);
+
+        verify(spendRepository).releaseExtraction(spend.getId(), claimToken, SpendStatus.FAILED, NOW);
         verify(storageService, never()).deleteFile(any());
         verify(spendRepository, never()).delete(any(Spend.class));
         verify(spendRepository, never()).deleteById(any());
@@ -286,7 +305,32 @@ class ReceiptProcessingServiceTest {
 
         service.processExtraction(spend.getId(), false);
 
-        assertEquals(SpendStatus.FAILED, spend.getStatus());
+        UUID claimToken = claimTokenOf(spend);
+
+        verify(spendRepository).releaseExtraction(spend.getId(), claimToken, SpendStatus.FAILED, NOW);
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void extraction_whenDisplacedBeforeStoringStopsWithoutStoringRawTextOrPublishing() {
+        Spend spend = spendIn(SpendStatus.PENDING);
+        when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
+        when(spendRepository.advanceToEnrichment(any(), any(), any())).thenReturn(0);
+
+        service.processExtraction(spend.getId(), false);
+
+        verifyNoInteractions(receiptMetadataRepository, queuePublisher);
+    }
+
+    @Test
+    void extraction_whenDisplacedAndFailingStopsWithoutRethrowingSoTheCurrentOwnerKeepsTheSpend() {
+        Spend spend = spendIn(SpendStatus.PENDING);
+        when(extractionService.extract(any(), any(), any(), any()))
+            .thenThrow(new ReceiptProcessingException("OCR returned empty text"));
+        when(spendRepository.releaseExtraction(any(), any(), any(), any())).thenReturn(0);
+
+        service.processExtraction(spend.getId(), true);
+
         verifyNoInteractions(queuePublisher);
     }
 
@@ -410,20 +454,6 @@ class ReceiptProcessingServiceTest {
         assertEquals(null, spend.getProcessingStage());
     }
 
-    // Saving the Spend after the raw text is stored must not orphan the new metadata: the relation
-    // removes orphans, so a Spend that does not point at its metadata would delete it on save.
-    @Test
-    void extraction_linksTheNewMetadataToTheSpendSoSavingTheSpendDoesNotDeleteIt() {
-        Spend spend = spendIn(SpendStatus.PENDING);
-        when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
-
-        service.processExtraction(spend.getId(), false);
-
-        ArgumentCaptor<ReceiptMetadata> saved = ArgumentCaptor.forClass(ReceiptMetadata.class);
-        verify(receiptMetadataRepository).save(saved.capture());
-        assertEquals(saved.getValue(), spend.getReceiptMetadata());
-    }
-
     @Test
     void extraction_leavesTheSpendInTheEnrichmentStageWhenItQueuesEnrichment() {
         Spend spend = spendIn(SpendStatus.PENDING);
@@ -431,7 +461,7 @@ class ReceiptProcessingServiceTest {
 
         service.processExtraction(spend.getId(), false);
 
-        assertEquals(ProcessingStage.ENRICHMENT, spend.getProcessingStage());
+        verify(spendRepository).advanceToEnrichment(eq(spend.getId()), any(), any());
     }
 
     @Test
@@ -545,7 +575,6 @@ class ReceiptProcessingServiceTest {
         service.retry(user, spend.getId());
         service.processExtraction(spend.getId(), false);
 
-        assertEquals(SpendStatus.PROCESSING, spend.getStatus());
         verify(queuePublisher).publishForEnrichment(spend.getId());
     }
 
@@ -670,6 +699,9 @@ class ReceiptProcessingServiceTest {
 
         service.retry(user, spend.getId());
         service.processExtraction(spend.getId(), false);
+        // The repository is a mock, so move the Spend to Enrichment as the stage change would.
+        spend.setStatus(SpendStatus.PROCESSING);
+        spend.setProcessingStage(ProcessingStage.ENRICHMENT);
         service.processEnrichment(spend.getId(), false);
 
         assertEquals(SpendStatus.PROCESSED, spend.getStatus());
