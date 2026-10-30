@@ -35,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpendRepositoryIT extends PostgresIntegrationTest {
 
 	private static final Duration LEASE = Duration.ofSeconds(60);
+	private static final UUID FIRST_TOKEN = UUID.randomUUID();
+	private static final UUID SECOND_TOKEN = UUID.randomUUID();
 
 	@Autowired SpendRepository spendRepository;
 	@Autowired ReceiptMetadataRepository receiptMetadataRepository;
@@ -92,6 +94,59 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	@Test
+	void aDisplacedWorkerCannotAdvanceTheStage() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		assertThat(spendRepository.advanceToEnrichment(spend.getId(), FIRST_TOKEN, LocalDateTime.now())).isZero();
+
+		assertThat(reload(spend).getProcessingStage()).isEqualTo(ProcessingStage.EXTRACTION);
+	}
+
+	@Test
+	void aDisplacedWorkerCannotFailOrReleaseTheSpend() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		int failed = spendRepository.releaseExtraction(spend.getId(), FIRST_TOKEN, SpendStatus.FAILED, LocalDateTime.now());
+		int pending = spendRepository.releaseExtraction(spend.getId(), FIRST_TOKEN, SpendStatus.PENDING, LocalDateTime.now());
+
+		assertThat(failed).isZero();
+		assertThat(pending).isZero();
+		Spend current = reload(spend);
+		assertThat(current.getStatus()).isEqualTo(SpendStatus.PROCESSING);
+		assertThat(current.getProcessingStage()).isEqualTo(ProcessingStage.EXTRACTION);
+	}
+
+	@Test
+	void theCurrentOwnerCanAdvanceTheStage() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		assertThat(spendRepository.advanceToEnrichment(spend.getId(), SECOND_TOKEN, LocalDateTime.now())).isEqualTo(1);
+
+		assertThat(reload(spend).getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
+	}
+
+	@Test
+	void theCurrentOwnerCanReleaseTheSpend() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		assertThat(spendRepository.releaseExtraction(spend.getId(), SECOND_TOKEN, SpendStatus.PENDING, LocalDateTime.now()))
+			.isEqualTo(1);
+
+		Spend released = reload(spend);
+		assertThat(released.getStatus()).isEqualTo(SpendStatus.PENDING);
+		assertThat(released.getProcessingStage()).isNull();
+	}
+
+	// The first worker claims, stalls past the lease, and the second worker claims the same Spend.
+	private Spend spendTakenOverBySecondWorker() {
+		Spend spend = saveSpend(SpendStatus.PENDING, null);
+		claim(spend.getId(), FIRST_TOKEN);
+		backdateStatusChange(spend, LEASE.plusSeconds(1));
+		claim(spend.getId(), SECOND_TOKEN);
+		return spend;
+	}
+
+	@Test
 	void savingASpendKeepsReceiptMetadataStoredEarlier() {
 		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.EXTRACTION);
 		ReceiptMetadata metadata = ReceiptMetadata.builder()
@@ -141,8 +196,12 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	private int claim(UUID id) {
+		return claim(id, UUID.randomUUID());
+	}
+
+	private int claim(UUID id, UUID claimToken) {
 		LocalDateTime now = LocalDateTime.now();
-		return spendRepository.claimForExtraction(id, now, now.minus(LEASE));
+		return spendRepository.claimForExtraction(id, claimToken, now, now.minus(LEASE));
 	}
 
 	private void backdateStatusChange(Spend spend, Duration age) {

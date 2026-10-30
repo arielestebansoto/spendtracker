@@ -62,6 +62,9 @@ public class Spend {
     @Column(name = "processing_stage", length = 20)
     private ProcessingStage processingStage;
 
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
     @OneToOne(mappedBy = "spend", cascade = CascadeType.ALL, orphanRemoval = true)
     private ReceiptMetadata receiptMetadata;
 

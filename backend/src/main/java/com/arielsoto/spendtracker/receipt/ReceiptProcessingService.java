@@ -20,6 +20,7 @@ import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -49,6 +50,7 @@ public class ReceiptProcessingService {
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
 
     // Shorter than the extraction queue's visibility timeout (120 s, see docs/sqs-provisioning.md), so a
     // redelivery after a worker died can resume, but longer than the gap between duplicate deliveries.
@@ -130,46 +132,73 @@ public class ReceiptProcessingService {
      * is a duplicate or stale delivery and is dropped. A Spend left PROCESSING in Extraction whose
      * claim is older than the lease means the worker died mid-stage, so the redelivery resumes it. The
      * Spend is claimed with a conditional UPDATE, so if two workers get the same message only one runs
-     * the stage. A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
+     * the stage. The claim's token fences every later write of the stage, so a worker whose lease
+     * expired and whose Spend was claimed by another stops without writing or publishing anything.
+     * A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
      * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processExtraction(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
-        if (spend == null || !isAwaitingExtraction(spend) || !claimForExtraction(spendId)) {
+        UUID claimToken = spend != null && isAwaitingExtraction(spend) ? claimForExtraction(spendId) : null;
+        if (claimToken == null) {
             log.info("receipt_extraction_dropped spendId={} status={}",
                 spendId, spend == null ? "MISSING" : spend.getStatus());
             return;
         }
 
-        // The claim already wrote this to the database; the loaded Spend mirrors it for the saves below.
-        spend.setStatus(SpendStatus.PROCESSING);
-        spend.setProcessingStage(ProcessingStage.EXTRACTION);
-
         try {
             OcrResult ocrResult = extractionService.extract(
                 spend.getUser(), spendId, loadImage(spend), spend.getReceiptContentType()
             );
-            saveRawText(spend, ocrResult);
-            spend.setProcessingStage(ProcessingStage.ENRICHMENT);
-            spendRepository.save(spend);
+            if (!completeExtraction(spend, claimToken, ocrResult)) {
+                logDisplaced(spendId);
+                return;
+            }
             queuePublisher.publishForEnrichment(spendId);
         } catch (AiUsageLimitExceededException e) {
             log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
                 spendId, e.getResourceType());
-            spend.setStatus(SpendStatus.FAILED);
-            spendRepository.save(spend);
+            releaseExtraction(spendId, claimToken, SpendStatus.FAILED);
         } catch (RuntimeException e) {
             log.error("receipt_extraction_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
-            spend.setStatus(lastAttempt ? SpendStatus.FAILED : SpendStatus.PENDING);
-            spendRepository.save(spend);
-            throw e;
+            if (releaseExtraction(spendId, claimToken, lastAttempt ? SpendStatus.FAILED : SpendStatus.PENDING)) {
+                throw e;
+            }
         }
     }
 
-    private boolean claimForExtraction(UUID spendId) {
+    // Returns the claim's fencing token, or null if another worker holds the Spend.
+    private UUID claimForExtraction(UUID spendId) {
+        UUID claimToken = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now(clock);
-        return spendRepository.claimForExtraction(spendId, now, now.minus(EXTRACTION_LEASE)) == 1;
+        int claimed = spendRepository.claimForExtraction(spendId, claimToken, now, now.minus(EXTRACTION_LEASE));
+        return claimed == 1 ? claimToken : null;
+    }
+
+    // The stage change comes first and the raw text is stored in the same transaction, so a worker
+    // whose claim was taken over writes nothing. Returns false in that case.
+    private boolean completeExtraction(Spend spend, UUID claimToken, OcrResult ocrResult) {
+        return Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+            if (spendRepository.advanceToEnrichment(spend.getId(), claimToken, LocalDateTime.now(clock)) == 0) {
+                return false;
+            }
+            saveRawText(spend, ocrResult);
+            return true;
+        }));
+    }
+
+    // Returns false, after logging, if another worker has claimed the Spend since, so this one must stop.
+    private boolean releaseExtraction(UUID spendId, UUID claimToken, SpendStatus status) {
+        int released = spendRepository.releaseExtraction(spendId, claimToken, status, LocalDateTime.now(clock));
+        if (released == 0) {
+            logDisplaced(spendId);
+        }
+        return released == 1;
+    }
+
+    private void logDisplaced(UUID spendId) {
+        log.warn("receipt_extraction_displaced spendId={}", spendId);
     }
 
     private boolean isAwaitingExtraction(Spend spend) {
@@ -343,8 +372,6 @@ public class ReceiptProcessingService {
         metadata.setClassifiedAt(null);
         metadata.setRawResponse(null);
         receiptMetadataRepository.save(metadata);
-        // The Spend removes orphans, so it must point at the metadata or saving it would delete the row.
-        spend.setReceiptMetadata(metadata);
     }
 
     private Category uncategorized() {
