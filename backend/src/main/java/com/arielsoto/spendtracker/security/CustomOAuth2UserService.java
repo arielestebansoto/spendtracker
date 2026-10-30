@@ -18,6 +18,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserAppRepository userRepository;
 
+    private final EmailAllowlist emailAllowlist;
+
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
         OAuth2User oauthUser = super.loadUser(userRequest);
@@ -27,6 +29,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             .getRegistrationId();
 
         OAuthProvider provider = OAuthProvider.valueOf(registrationId.toUpperCase());
+
+        emailAllowlist.requireInvited(
+            oauthUser.getAttribute("email"),
+            isEmailVerified(provider, oauthUser)
+        );
 
         String oauthId = extractOAuthId(provider, oauthUser);
 
@@ -41,6 +48,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         return switch(provider) {
             case GOOGLE -> (String) oauthUser.getAttribute("sub");
             case GITHUB -> oauthUser.getAttribute("id").toString();
+        };
+    }
+
+    private boolean isEmailVerified(OAuthProvider provider, OAuth2User oauthUser) {
+        return switch(provider) {
+            // GitHub only lets a user make public an email they have verified
+            case GITHUB -> true;
+            case GOOGLE -> Boolean.TRUE.equals(oauthUser.getAttribute("email_verified"));
         };
     }
 

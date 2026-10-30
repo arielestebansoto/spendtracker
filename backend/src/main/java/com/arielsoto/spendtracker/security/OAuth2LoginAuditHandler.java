@@ -10,6 +10,7 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import com.arielsoto.spendtracker.loggin.ClientIpResolver;
 import com.arielsoto.spendtracker.user.UserApp;
@@ -29,14 +30,18 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
 
     private final String defaultSuccessUrl;
 
+    private final String failureUrl;
+
     public OAuth2LoginAuditHandler(
         AuthenticatedUserService authenticatedUserService,
         SecurityAuditLogger auditLogger,
-        @Value("${app.oauth2.default-success-url}") String defaultSuccessUrl
+        @Value("${app.oauth2.default-success-url}") String defaultSuccessUrl,
+        @Value("${app.oauth2.failure-url}") String failureUrl
     ) {
         this.authenticatedUserService = authenticatedUserService;
         this.auditLogger = auditLogger;
         this.defaultSuccessUrl = defaultSuccessUrl;
+        this.failureUrl = failureUrl;
     }
 
     @Override
@@ -64,13 +69,26 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
         HttpServletRequest request,
         HttpServletResponse response,
         AuthenticationException exception
-    ) {
+    ) throws IOException {
+
+        String reason = resolveReason(exception);
 
         auditLogger.loginFailed(
             resolveProvider(request),
-            resolveReason(exception),
+            reason,
             ClientIpResolver.resolve(request)
         );
+
+        // The browser lands here after the provider's redirect, so a person who is not invited is sent back
+        // to the frontend to read why, instead of a blank 401 page.
+        if (EmailAllowlist.NOT_INVITED.equals(reason)) {
+            response.sendRedirect(
+                UriComponentsBuilder.fromUriString(failureUrl)
+                    .queryParam("error", EmailAllowlist.NOT_INVITED)
+                    .toUriString()
+            );
+            return;
+        }
 
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
     }

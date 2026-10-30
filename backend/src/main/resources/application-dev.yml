@@ -17,6 +17,9 @@ spring:
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  access:
+    # A fresh local database has no allowed emails; set ACCESS_ALLOWLIST_ENABLED=true to try the allowlist.
+    allowlist-enabled: ${ACCESS_ALLOWLIST_ENABLED:false}
     
 logging:
   level:
