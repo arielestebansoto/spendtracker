@@ -63,6 +63,7 @@ cd frontend && pnpm build
 - Session cookies: secure in prod, non-secure in dev
 - CORS origins must be set via env var `CORS_ALLOWED_ORIGINS`
 - SQS queue naming (`<env>-receipt-extraction`, `<env>-spend-enrichment`, plus `-dlq`), queue URL env vars and IAM permissions: `docs/sqs-provisioning.md` (created by `scripts/provision-sqs.sh`)
+- Production RDS is private; connecting a client (DBeaver) through the EC2 instance via SSM port forwarding or an SSH tunnel, and the security group rules: `docs/production-database-access.md`
 - Required env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OAUTH2_*` keys
 
 ## Coding Principles
