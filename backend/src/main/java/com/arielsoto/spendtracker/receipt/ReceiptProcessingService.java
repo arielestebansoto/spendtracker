@@ -52,9 +52,9 @@ public class ReceiptProcessingService {
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
-    // Shorter than the extraction queue's visibility timeout (120 s, see docs/sqs-provisioning.md), so a
+    // Shorter than the work queues' visibility timeout (120 s, see docs/sqs-provisioning.md), so a
     // redelivery after a worker died can resume, but longer than the gap between duplicate deliveries.
-    private static final Duration EXTRACTION_LEASE = Duration.ofSeconds(60);
+    private static final Duration CLAIM_LEASE = Duration.ofSeconds(60);
 
     /**
      * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
@@ -147,15 +147,23 @@ public class ReceiptProcessingService {
             return;
         }
 
+        // Once the Spend is in Enrichment the token is spent, so publishing is outside the failure handling.
+        if (extract(spend, claimToken, lastAttempt)) {
+            queuePublisher.publishForEnrichment(spendId);
+        }
+    }
+
+    // Returns true if the Spend was moved to Enrichment, false if the worker was displaced or gave up.
+    private boolean extract(Spend spend, UUID claimToken, boolean lastAttempt) {
+        UUID spendId = spend.getId();
         try {
             OcrResult ocrResult = extractionService.extract(
                 spend.getUser(), spendId, loadImage(spend), spend.getReceiptContentType()
             );
-            if (!completeExtraction(spend, claimToken, ocrResult)) {
-                logDisplaced(spendId);
-                return;
+            if (completeExtraction(spend, claimToken, ocrResult)) {
+                return true;
             }
-            queuePublisher.publishForEnrichment(spendId);
+            logDisplaced("extraction", spendId);
         } catch (AiUsageLimitExceededException e) {
             log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
                 spendId, e.getResourceType());
@@ -166,13 +174,14 @@ public class ReceiptProcessingService {
                 throw e;
             }
         }
+        return false;
     }
 
     // Returns the claim's fencing token, or null if another worker holds the Spend.
     private UUID claimForExtraction(UUID spendId) {
         UUID claimToken = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now(clock);
-        int claimed = spendRepository.claimForExtraction(spendId, claimToken, now, now.minus(EXTRACTION_LEASE));
+        int claimed = spendRepository.claimForExtraction(spendId, claimToken, now, now.minus(CLAIM_LEASE));
         return claimed == 1 ? claimToken : null;
     }
 
@@ -192,13 +201,13 @@ public class ReceiptProcessingService {
     private boolean releaseExtraction(UUID spendId, UUID claimToken, SpendStatus status) {
         int released = spendRepository.releaseExtraction(spendId, claimToken, status, LocalDateTime.now(clock));
         if (released == 0) {
-            logDisplaced(spendId);
+            logDisplaced("extraction", spendId);
         }
         return released == 1;
     }
 
-    private void logDisplaced(UUID spendId) {
-        log.warn("receipt_extraction_displaced spendId={}", spendId);
+    private void logDisplaced(String stage, UUID spendId) {
+        log.warn("receipt_{}_displaced spendId={}", stage, spendId);
     }
 
     private boolean isAwaitingExtraction(Spend spend) {
@@ -213,8 +222,11 @@ public class ReceiptProcessingService {
      *
      * A message for a missing Spend, one not PROCESSING in the Enrichment stage, or one already enriched (a late duplicate
      * of a message that was already handled, now seen while a Reclassify runs) is a duplicate or
-     * stale delivery and is dropped. A failure rethrows so SQS redelivers; the Spend stays PROCESSING, which the
-     * redelivery accepts, or goes to FAILED on the last attempt. Nothing is ever deleted.
+     * stale delivery and is dropped. The Spend is claimed like in Extraction, with a lease and a token
+     * that fences the final write, so two workers with the same message run the stage once and a
+     * displaced worker stops without writing. A failure rethrows so SQS redelivers; the Spend stays
+     * PROCESSING and unclaimed, which the redelivery accepts, or goes to FAILED on the last attempt.
+     * Nothing is ever deleted.
      * Running out of AI quota is not retried: SQS cannot fix it.
      */
     public void processEnrichment(UUID spendId, boolean lastAttempt) {
@@ -250,7 +262,11 @@ public class ReceiptProcessingService {
     private void runEnrichment(UUID spendId, boolean lastAttempt, boolean categoryOnly) {
         String event = categoryOnly ? "receipt_category_only" : "receipt_enrichment";
         Spend spend = findForEnrichment(spendId, categoryOnly, event);
-        if (spend == null) {
+        UUID claimToken = spend != null ? claimForEnrichment(spendId) : null;
+        if (spend != null && claimToken == null) {
+            log.info(event + "_dropped spendId={} status={}", spendId, spend.getStatus());
+        }
+        if (claimToken == null) {
             return;
         }
 
@@ -261,17 +277,51 @@ public class ReceiptProcessingService {
             } else {
                 applyEnrichment(spend, enrichmentService.enrich(spend.getUser(), rawText));
             }
-            spendRepository.save(spend);
+            saveClaimed(spend, claimToken);
         } catch (AiUsageLimitExceededException e) {
             log.warn(event + "_ai_limit_exceeded spendId={} resourceType={}", spendId, e.getResourceType());
-            giveUp(spend, categoryOnly);
+            giveUp(spend, claimToken, categoryOnly);
         } catch (RuntimeException e) {
             log.error(event + "_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
-            if (lastAttempt) {
-                giveUp(spend, categoryOnly);
+            boolean owned = lastAttempt ? giveUp(spend, claimToken, categoryOnly) : releaseEnrichment(spendId, claimToken);
+            if (owned) {
+                throw e;
             }
-            throw e;
         }
+    }
+
+    // Returns the claim's fencing token, or null if another worker holds the Spend.
+    private UUID claimForEnrichment(UUID spendId) {
+        UUID claimToken = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.now(clock);
+        int claimed = spendRepository.claimForEnrichment(spendId, claimToken, now, now.minus(CLAIM_LEASE));
+        return claimed == 1 ? claimToken : null;
+    }
+
+    // Confirming the claim and saving share a transaction, so a worker whose claim was taken over writes
+    // nothing. The saved Spend is unclaimed, ready for a later Reclassify. Returns false if displaced.
+    private boolean saveClaimed(Spend spend, UUID claimToken) {
+        boolean saved = Boolean.TRUE.equals(transactionTemplate.execute(status -> {
+            if (spendRepository.confirmClaim(spend.getId(), claimToken, LocalDateTime.now(clock)) == 0) {
+                return false;
+            }
+            spend.setClaimToken(null);
+            spendRepository.save(spend);
+            return true;
+        }));
+        if (!saved) {
+            logDisplaced("enrichment", spend.getId());
+        }
+        return saved;
+    }
+
+    // Returns false, after logging, if another worker has claimed the Spend since, so this one must stop.
+    private boolean releaseEnrichment(UUID spendId, UUID claimToken) {
+        boolean released = spendRepository.releaseEnrichment(spendId, claimToken) == 1;
+        if (!released) {
+            logDisplaced("enrichment", spendId);
+        }
+        return released;
     }
 
     // Returns the Spend if the message is current, or null (logged) for a missing, duplicate or stale one.
@@ -306,9 +356,10 @@ public class ReceiptProcessingService {
     }
 
     // A Spend that was never enriched is FAILED; an enriched one keeps its data and goes back to PROCESSED.
-    private void giveUp(Spend spend, boolean categoryOnly) {
+    // Returns false if another worker has claimed the Spend since, so nothing was written.
+    private boolean giveUp(Spend spend, UUID claimToken, boolean categoryOnly) {
         spend.setStatus(categoryOnly ? SpendStatus.PROCESSED : SpendStatus.FAILED);
-        spendRepository.save(spend);
+        return saveClaimed(spend, claimToken);
     }
 
     // Full Enrichment sets classifiedAt, and Extraction clears it, so it tells which kind of message is current.

@@ -237,12 +237,14 @@ class SpendServiceTest {
     @Test
     void reclassifyMovesTheSpendBackToProcessingAndQueuesACategoryOnlyEnrichment() {
         Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.PROCESSED);
+        spend.setClaimToken(UUID.randomUUID());
         owns(spend);
 
         SpendDetailResponse response = spendService.reclassify(spend.getId(), spend.getUser().getId());
 
         assertThat(spend.getStatus()).isEqualTo(SpendStatus.PROCESSING);
         assertThat(spend.getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
+        assertThat(spend.getClaimToken()).isNull();
         assertThat(response.status()).isEqualTo(SpendStatus.PROCESSING);
         InOrder order = inOrder(spendRepository, queuePublisher);
         order.verify(spendRepository).save(spend);

@@ -70,15 +70,17 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     );
 
     /**
-     * Moves a Spend claimed with {@code claimToken} from Extraction to Enrichment. Returns 0 if another
-     * worker has claimed it since, so a displaced worker cannot change the stage.
+     * Moves a Spend claimed with {@code claimToken} from Extraction to Enrichment, leaving it unclaimed
+     * for the Enrichment worker. Returns 0 if another worker has claimed it since, so a displaced worker
+     * cannot change the stage.
      */
     @Transactional
     @Modifying
     @Query("""
         UPDATE Spend s
         SET s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.ENRICHMENT,
-            s.statusChangedAt = :now
+            s.statusChangedAt = :now,
+            s.claimToken = null
         WHERE s.id = :id AND s.claimToken = :claimToken
     """)
     int advanceToEnrichment(
@@ -105,6 +107,57 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
         @Param("status") SpendStatus status,
         @Param("now") LocalDateTime now
     );
+
+    /**
+     * Atomically claims a Spend for the Enrichment stage, full or category-only: PROCESSING in
+     * Enrichment, unclaimed or with a claim older than {@code staleBefore} (a worker that died). Stores
+     * {@code claimToken}, which fences the stage's later writes ({@link #confirmClaim},
+     * {@link #releaseEnrichment}), and renews the lease. Returns 1 if this worker won and 0 if the Spend
+     * is not claimable.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.statusChangedAt = :now, s.claimToken = :claimToken
+        WHERE s.id = :id
+        AND s.status = com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING
+        AND s.processingStage = com.arielsoto.spendtracker.spend.ProcessingStage.ENRICHMENT
+        AND (s.claimToken IS NULL OR s.statusChangedAt < :staleBefore)
+    """)
+    int claimForEnrichment(
+        @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
+        @Param("now") LocalDateTime now,
+        @Param("staleBefore") LocalDateTime staleBefore
+    );
+
+    /**
+     * Checks that {@code claimToken} still owns the Spend. Run first in the transaction that saves the
+     * Enrichment result: it returns 0 if another worker has claimed the Spend since, and otherwise
+     * holds the row until the transaction ends, so a displaced worker cannot overwrite the owner.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.statusChangedAt = :now
+        WHERE s.id = :id AND s.claimToken = :claimToken
+    """)
+    int confirmClaim(
+        @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
+        @Param("now") LocalDateTime now
+    );
+
+    /**
+     * Gives up the claim on a Spend after a failed Enrichment attempt, leaving it PROCESSING so the
+     * redelivery is accepted. Returns 0 if another worker has claimed it since.
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE Spend s SET s.claimToken = null WHERE s.id = :id AND s.claimToken = :claimToken")
+    int releaseEnrichment(@Param("id") UUID id, @Param("claimToken") UUID claimToken);
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
 

@@ -191,6 +191,9 @@ class ReceiptProcessingServiceTest {
         lenient().when(spendRepository.claimForExtraction(any(), any(), any(), any())).thenReturn(1);
         lenient().when(spendRepository.advanceToEnrichment(any(), any(), any())).thenReturn(1);
         lenient().when(spendRepository.releaseExtraction(any(), any(), any(), any())).thenReturn(1);
+        lenient().when(spendRepository.claimForEnrichment(any(), any(), any(), any())).thenReturn(1);
+        lenient().when(spendRepository.confirmClaim(any(), any(), any())).thenReturn(1);
+        lenient().when(spendRepository.releaseEnrichment(any(), any())).thenReturn(1);
     }
 
     // The token the worker claimed the Spend with, which every later write of the stage must carry.
@@ -512,6 +515,100 @@ class ReceiptProcessingServiceTest {
 
         assertEquals(SpendStatus.FAILED, spend.getStatus());
         verifyNoInteractions(enrichmentService);
+    }
+
+    @Test
+    void enrichment_dropsTheMessageWhenAnotherWorkerClaimedTheSpendFirst() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(spendRepository.claimForEnrichment(eq(spend.getId()), any(), any(), any())).thenReturn(0);
+
+        service.processEnrichment(spend.getId(), false);
+
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void enrichment_claimsWithTheLeaseAndFencesTheSaveWithTheSameToken() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(any(), any())).thenReturn(classification("Comida", null));
+
+        service.processEnrichment(spend.getId(), false);
+
+        ArgumentCaptor<UUID> token = ArgumentCaptor.forClass(UUID.class);
+        verify(spendRepository).claimForEnrichment(
+            eq(spend.getId()), token.capture(), eq(NOW), eq(NOW.minusSeconds(60)));
+        verify(spendRepository).confirmClaim(spend.getId(), token.getValue(), NOW);
+        assertEquals(null, spend.getClaimToken());
+    }
+
+    @Test
+    void enrichment_whenDisplacedBeforeSavingStopsWithoutSaving() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(categoryRepository.findByName("Comida")).thenReturn(Optional.of(comida));
+        when(enrichmentService.enrich(any(), any())).thenReturn(classification("Comida", null));
+        when(spendRepository.confirmClaim(any(), any(), any())).thenReturn(0);
+
+        service.processEnrichment(spend.getId(), false);
+
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void enrichment_failureBeforeLastAttemptReleasesTheClaimSoRedeliveryIsAccepted() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any())).thenThrow(new ReceiptProcessingException("no amount"));
+
+        assertThrows(ReceiptProcessingException.class, () -> service.processEnrichment(spend.getId(), false));
+
+        ArgumentCaptor<UUID> token = ArgumentCaptor.forClass(UUID.class);
+        verify(spendRepository).claimForEnrichment(eq(spend.getId()), token.capture(), any(), any());
+        verify(spendRepository).releaseEnrichment(spend.getId(), token.getValue());
+    }
+
+    @Test
+    void enrichment_whenDisplacedAndFailingStopsWithoutRethrowingOrMarkingFailed() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any())).thenThrow(new ReceiptProcessingException("no amount"));
+        when(spendRepository.releaseEnrichment(any(), any())).thenReturn(0);
+
+        service.processEnrichment(spend.getId(), false);
+
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void enrichment_whenDisplacedOnTheLastAttemptDoesNotMarkFailed() {
+        Spend spend = spendAwaitingEnrichment(SpendStatus.PROCESSING);
+        when(enrichmentService.enrich(any(), any())).thenThrow(new ReceiptProcessingException("no amount"));
+        when(spendRepository.confirmClaim(any(), any(), any())).thenReturn(0);
+
+        service.processEnrichment(spend.getId(), true);
+
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void categoryOnly_dropsTheMessageWhenAnotherWorkerClaimedTheSpendFirst() {
+        Spend spend = spendBeingReclassified(SpendStatus.PROCESSING);
+        when(spendRepository.claimForEnrichment(eq(spend.getId()), any(), any(), any())).thenReturn(0);
+
+        service.processCategoryOnlyEnrichment(spend.getId(), false);
+
+        verifyNoInteractions(enrichmentService);
+        verify(spendRepository, never()).save(any());
+    }
+
+    @Test
+    void extraction_whenPublishingToEnrichmentFailsRethrowsWithoutReleasingTheSpend() {
+        Spend spend = spendIn(SpendStatus.PENDING);
+        when(extractionService.extract(user, spend.getId(), IMAGE, "image/jpeg")).thenReturn(ocr("TOTAL 10"));
+        doThrow(new RuntimeException("sqs down")).when(queuePublisher).publishForEnrichment(any());
+
+        assertThrows(RuntimeException.class, () -> service.processExtraction(spend.getId(), false));
+
+        verify(spendRepository, never()).releaseExtraction(any(), any(), any(), any());
     }
 
     // ---- retry ----
