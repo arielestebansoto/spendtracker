@@ -28,6 +28,8 @@ class OAuth2LoginAuditHandlerTest {
 
     private static final String SUCCESS_URL = "http://localhost:3000/dashboard";
 
+    private static final String FAILURE_URL = "http://localhost:3000";
+
     @Mock
     private AuthenticatedUserService authenticatedUserService;
 
@@ -45,7 +47,8 @@ class OAuth2LoginAuditHandlerTest {
         handler = new OAuth2LoginAuditHandler(
             authenticatedUserService,
             auditLogger,
-            SUCCESS_URL
+            SUCCESS_URL,
+            FAILURE_URL
         );
         request = new MockHttpServletRequest();
         request.setRemoteAddr("203.0.113.7");
@@ -72,7 +75,7 @@ class OAuth2LoginAuditHandlerTest {
     }
 
     @Test
-    void oauth2FailureLogsProviderFromCallbackPathAndErrorCode() {
+    void oauth2FailureLogsProviderFromCallbackPathAndErrorCode() throws Exception {
         request.setRequestURI("/login/oauth2/code/google");
         OAuth2AuthenticationException exception = new OAuth2AuthenticationException(
             new OAuth2Error("access_denied", "The user denied access", null)
@@ -85,7 +88,7 @@ class OAuth2LoginAuditHandlerTest {
     }
 
     @Test
-    void otherFailureLogsExceptionTypeAndUnknownProvider() {
+    void otherFailureLogsExceptionTypeAndUnknownProvider() throws Exception {
         request.setRequestURI("/somewhere-else");
 
         handler.onAuthenticationFailure(
@@ -96,5 +99,18 @@ class OAuth2LoginAuditHandlerTest {
 
         verify(auditLogger).loginFailed("unknown", "BadCredentialsException", "203.0.113.7");
         assertThat(response.getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void notInvitedFailureIsLoggedThenRedirectsToTheFrontendWithTheReason() throws Exception {
+        request.setRequestURI("/login/oauth2/code/github");
+        OAuth2AuthenticationException exception = new OAuth2AuthenticationException(
+            new OAuth2Error(EmailAllowlist.NOT_INVITED)
+        );
+
+        handler.onAuthenticationFailure(request, response, exception);
+
+        verify(auditLogger).loginFailed("github", "not_invited", "203.0.113.7");
+        assertThat(response.getRedirectedUrl()).isEqualTo(FAILURE_URL + "?error=not_invited");
     }
 }

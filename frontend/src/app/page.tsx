@@ -1,9 +1,27 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { apiUrl } from "./lib/api";
 import { useAuth } from "./components/AuthProvider";
 import LoadingState from "./components/LoadingState";
+
+// The backend sends a person whose email is not in the allowlist back here with ?error=not_invited.
+function NotInvitedMessage() {
+  const searchParams = useSearchParams();
+
+  if (searchParams.get("error") !== "not_invited") {
+    return null;
+  }
+
+  return (
+    <p className="mt-6 rounded-lg border border-border px-4 py-3 text-sm text-muted-foreground">
+      This app is invite-only and your email is not on the list. If you were invited and used GitHub, make
+      your email public in your GitHub profile, or continue with Google.
+    </p>
+  );
+}
 
 export default function HomePage() {
   const { user, isLoading } = useAuth();
@@ -35,6 +53,10 @@ export default function HomePage() {
           <p className="mt-4 text-lg text-muted-foreground">
             Know where your money goes.
           </p>
+
+          <Suspense fallback={null}>
+            <NotInvitedMessage />
+          </Suspense>
 
           <div className="mt-8 flex flex-col gap-3">
             <button

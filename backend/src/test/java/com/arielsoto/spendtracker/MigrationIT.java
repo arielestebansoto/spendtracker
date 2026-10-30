@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Runs the Flyway migrations in their own schemas, apart from the schema the Spring tests use. */
 class MigrationIT extends PostgresIntegrationTest {
@@ -49,6 +50,15 @@ class MigrationIT extends PostgresIntegrationTest {
 
 		assertThat(query("migration_updated_at", "SELECT updated_at FROM spends"))
 			.containsOnly("2026-01-15 10:30:00");
+	}
+
+	@Test
+	void v15RejectsAnAllowedEmailNotInLowerCase() throws Exception {
+		flyway("migration_allowed_emails").migrate();
+
+		assertThatThrownBy(() -> execute("migration_allowed_emails",
+			"INSERT INTO allowed_emails (email) VALUES ('Someone@Example.com')"))
+			.hasMessageContaining("chk_allowed_emails_email_lower_case");
 	}
 
 	private Flyway flyway(String schema) {

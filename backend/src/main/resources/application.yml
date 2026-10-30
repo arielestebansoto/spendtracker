@@ -54,6 +54,11 @@ spring:
 app:
   oauth2:
     default-success-url: ${OAUTH2_SUCCESS_URL}
+    # Frontend page with the login buttons, where a person who is not invited is sent with ?error=not_invited.
+    failure-url: ${OAUTH2_FAILURE_URL:${OAUTH2_SUCCESS_URL}}
+  access:
+    # Only emails in the allowed_emails table can log in (see docs/access-allowlist.md). On unless turned off.
+    allowlist-enabled: ${ACCESS_ALLOWLIST_ENABLED:true}
   logout:
     logout-url: /api/v1/auth/logout
   cors:

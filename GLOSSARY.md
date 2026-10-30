@@ -39,3 +39,7 @@ _Avoid_: OCR step, Scan.
 **Enrichment**:
 The step that turns a Receipt's raw text into the Spend's amount, date, description, items and Category, guided by the Category descriptions and the user's Classification Rules.
 _Avoid_: Classification (that is only one part of enrichment), Analysis.
+
+**Allowlist**:
+The emails of the people invited to use the app; only they can log in. Each email is a row in `allowed_emails`, managed by hand. Being invited is checked on every login, so removing an email revokes access from the next login on.
+_Avoid_: Whitelist, Invite list, Sign-up.

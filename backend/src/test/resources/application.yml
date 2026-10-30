@@ -39,6 +39,9 @@ app:
     allowed-headers: Authorization,Cache-Control,Content-Type,X-XSRF-TOKEN
   oauth2:
     default-success-url: http://localhost:3000
+    failure-url: http://localhost:3000
+  access:
+    allowlist-enabled: true
   logout:
     logout-url: /api/v1/auth/logout
 

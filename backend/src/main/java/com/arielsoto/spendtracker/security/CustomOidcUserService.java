@@ -17,10 +17,17 @@ public class CustomOidcUserService extends OidcUserService {
     
     private final UserAppRepository userRepository;
 
+    private final EmailAllowlist emailAllowlist;
+
     @Override
     public OidcUser loadUser(OidcUserRequest userRequest) {
         
         OidcUser oidcUser = super.loadUser(userRequest);
+
+        emailAllowlist.requireInvited(
+            oidcUser.getEmail(),
+            Boolean.TRUE.equals(oidcUser.getEmailVerified())
+        );
 
         String oauthId = oidcUser.getSubject();
 
