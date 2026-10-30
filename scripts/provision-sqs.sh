@@ -321,6 +321,8 @@ say "If the worker has not deleted it by then, SQS delivers it again."
 say "So it must be LONGER than the slowest run of one stage:"
 step "extraction: S3 download + Textract (a fallback may mean a second Textract call)"
 step "enrichment: one Bedrock call"
+say "The backend caps those calls so a stage takes at most 50 s (docs/sqs-provisioning.md),"
+say "and the claim lease is 60 s, so use at least 60 s."
 say "A retried message also waits this long, so keep it from being huge:"
 say "$MAX_RECEIVE_COUNT attempts x timeout should stay well under the 15 minute"
 say "stuck-Spend cleanup (900 s), i.e. under about 300 s."
@@ -329,6 +331,8 @@ ask VISIBILITY_TIMEOUT "Visibility timeout in seconds [$DEFAULT_VISIBILITY_TIMEO
 VISIBILITY_TIMEOUT="${VISIBILITY_TIMEOUT:-$DEFAULT_VISIBILITY_TIMEOUT}"
 [[ "$VISIBILITY_TIMEOUT" =~ ^[0-9]+$ ]] || die "Visibility timeout must be a whole number of seconds."
 (( VISIBILITY_TIMEOUT >= 30 && VISIBILITY_TIMEOUT <= 43200 )) || die "Use between 30 and 43200 seconds."
+(( VISIBILITY_TIMEOUT >= 60 )) \
+  || warn "Below the 60 s claim lease, a redelivery cannot resume an interrupted stage."
 (( VISIBILITY_TIMEOUT * MAX_RECEIVE_COUNT < 900 )) \
   || warn "$MAX_RECEIVE_COUNT x $VISIBILITY_TIMEOUT s reaches the 15 minute stuck-Spend cleanup."
 echo

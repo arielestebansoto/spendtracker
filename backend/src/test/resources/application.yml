@@ -12,6 +12,7 @@ app:
       region: us-east-1
       access-key-id: test-key
       secret-access-key: test-secret
+      api-call-timeout: PT10S
   sqs:
     region: us-east-1
     receipt-extraction-queue-url: http://localhost/test-receipt-extraction

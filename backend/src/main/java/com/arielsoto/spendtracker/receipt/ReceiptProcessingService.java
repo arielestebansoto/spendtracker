@@ -54,6 +54,7 @@ public class ReceiptProcessingService {
 
     // Shorter than the work queues' visibility timeout (120 s, see docs/sqs-provisioning.md), so a
     // redelivery after a worker died can resume, but longer than the gap between duplicate deliveries.
+    // The AWS client timeouts (app.aws.textract, app.bedrock, app.storage.s3) keep each stage within it.
     private static final Duration CLAIM_LEASE = Duration.ofSeconds(60);
 
     /**

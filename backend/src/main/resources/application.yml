@@ -60,8 +60,12 @@ app:
     allowed-methods: GET,POST,PUT,DELETE,OPTIONS
     allowed-headers: Authorization,Cache-Control,Content-Type,X-XSRF-TOKEN
   aws:
+    # Each worker stage must finish within CLAIM_LEASE (60 s) in ReceiptProcessingService, and so within the
+    # work queues' visibility timeout (120 s, see docs/sqs-provisioning.md). These caps on a whole AWS call,
+    # retries included, keep it there: Extraction is S3 + 2 x Textract = 50 s, Enrichment is Bedrock = 45 s.
     textract:
       enabled: true
+      api-call-timeout: ${TEXTRACT_API_CALL_TIMEOUT:PT20S}
     bedrock:
       enabled: true
   billing:
@@ -72,6 +76,7 @@ app:
       region: ${AWS_REGION:}
       access-key-id: ${AWS_ACCESS_KEY_ID:}
       secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+      api-call-timeout: ${S3_API_CALL_TIMEOUT:PT10S}
   sqs:
     region: ${AWS_REGION:}
     receipt-extraction-queue-url: ${SQS_RECEIPT_EXTRACTION_QUEUE_URL:}
@@ -85,6 +90,7 @@ app:
     interval: ${STUCK_SPEND_CLEANUP_INTERVAL:PT5M}
   bedrock:
     model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
+    api-call-timeout: ${BEDROCK_API_CALL_TIMEOUT:PT45S}
   ai-usage:
     global:
       analyze-expense-pages: 100
