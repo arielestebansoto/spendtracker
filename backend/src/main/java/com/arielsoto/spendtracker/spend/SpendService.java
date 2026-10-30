@@ -153,6 +153,7 @@ public class SpendService {
 
         spend.setStatus(SpendStatus.PROCESSING);
         spend.setProcessingStage(ProcessingStage.ENRICHMENT);
+        spend.setClaimToken(null);
         spendRepository.save(spend);
         try {
             queuePublisher.publishForCategoryOnlyEnrichment(spend.getId());

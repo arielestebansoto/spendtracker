@@ -117,12 +117,77 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	@Test
-	void theCurrentOwnerCanAdvanceTheStage() {
+	void theCurrentOwnerCanAdvanceTheStageAndLeavesTheSpendUnclaimed() {
 		Spend spend = spendTakenOverBySecondWorker();
 
 		assertThat(spendRepository.advanceToEnrichment(spend.getId(), SECOND_TOKEN, LocalDateTime.now())).isEqualTo(1);
 
-		assertThat(reload(spend).getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
+		Spend advanced = reload(spend);
+		assertThat(advanced.getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
+		assertThat(advanced.getClaimToken()).isNull();
+	}
+
+	@Test
+	void claimForEnrichmentClaimsAnUnclaimedSpendInEnrichment() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+
+		assertThat(claimForEnrichment(spend.getId(), FIRST_TOKEN)).isEqualTo(1);
+
+		assertThat(reload(spend).getClaimToken()).isEqualTo(FIRST_TOKEN);
+	}
+
+	@Test
+	void claimForEnrichmentLeavesAClaimedSpendWithALiveLeaseToItsWorker() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+		claimForEnrichment(spend.getId(), FIRST_TOKEN);
+
+		assertThat(claimForEnrichment(spend.getId(), SECOND_TOKEN)).isZero();
+	}
+
+	@Test
+	void claimForEnrichmentResumesASpendWhoseLeaseExpired() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+		claimForEnrichment(spend.getId(), FIRST_TOKEN);
+		backdateStatusChange(spend, LEASE.plusSeconds(1));
+
+		assertThat(claimForEnrichment(spend.getId(), SECOND_TOKEN)).isEqualTo(1);
+	}
+
+	@Test
+	void claimForEnrichmentIgnoresSpendsInOtherStates() {
+		Spend extraction = saveSpend(SpendStatus.PROCESSING, ProcessingStage.EXTRACTION);
+		Spend pending = saveSpend(SpendStatus.PENDING, null);
+		Spend processed = saveSpend(SpendStatus.PROCESSED, null);
+
+		assertThat(claimForEnrichment(extraction.getId(), FIRST_TOKEN)).isZero();
+		assertThat(claimForEnrichment(pending.getId(), FIRST_TOKEN)).isZero();
+		assertThat(claimForEnrichment(processed.getId(), FIRST_TOKEN)).isZero();
+	}
+
+	@Test
+	void aDisplacedEnrichmentWorkerCannotConfirmOrReleaseItsClaim() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+		claimForEnrichment(spend.getId(), FIRST_TOKEN);
+		backdateStatusChange(spend, LEASE.plusSeconds(1));
+		claimForEnrichment(spend.getId(), SECOND_TOKEN);
+
+		assertThat(spendRepository.confirmClaim(spend.getId(), FIRST_TOKEN, LocalDateTime.now())).isZero();
+		assertThat(spendRepository.releaseEnrichment(spend.getId(), FIRST_TOKEN)).isZero();
+
+		assertThat(reload(spend).getClaimToken()).isEqualTo(SECOND_TOKEN);
+	}
+
+	@Test
+	void theCurrentEnrichmentOwnerCanConfirmAndReleaseItsClaim() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+		claimForEnrichment(spend.getId(), FIRST_TOKEN);
+
+		assertThat(spendRepository.confirmClaim(spend.getId(), FIRST_TOKEN, LocalDateTime.now())).isEqualTo(1);
+		assertThat(spendRepository.releaseEnrichment(spend.getId(), FIRST_TOKEN)).isEqualTo(1);
+
+		Spend released = reload(spend);
+		assertThat(released.getClaimToken()).isNull();
+		assertThat(released.getStatus()).isEqualTo(SpendStatus.PROCESSING);
 	}
 
 	@Test
@@ -202,6 +267,11 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	private int claim(UUID id, UUID claimToken) {
 		LocalDateTime now = LocalDateTime.now();
 		return spendRepository.claimForExtraction(id, claimToken, now, now.minus(LEASE));
+	}
+
+	private int claimForEnrichment(UUID id, UUID claimToken) {
+		LocalDateTime now = LocalDateTime.now();
+		return spendRepository.claimForEnrichment(id, claimToken, now, now.minus(LEASE));
 	}
 
 	private void backdateStatusChange(Spend spend, Duration age) {
