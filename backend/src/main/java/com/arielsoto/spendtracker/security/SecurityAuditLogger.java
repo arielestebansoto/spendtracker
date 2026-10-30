@@ -1,5 +1,7 @@
 package com.arielsoto.spendtracker.security;
 
+import java.util.UUID;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -7,17 +9,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class SecurityAuditLogger {
 
-    public void loginSuccess(String user, String ip) {
+    public void loginSuccess(String provider, UUID userId, String ip) {
         log.info(
-            "security_event type=LOGIN_SUCCESS user={} ip={}",
-            user,
+            "security_event type=LOGIN_SUCCESS provider={} userId={} ip={}",
+            provider,
+            userId,
             ip
         );
     }
 
-    public void loginFailed(String reason, String ip) {
+    public void loginFailed(String provider, String reason, String ip) {
         log.warn(
-            "security_event type=LOGIN_FAILED reason={} ip={}",
+            "security_event type=LOGIN_FAILED provider={} reason={} ip={}",
+            provider,
             reason,
             ip
         );
