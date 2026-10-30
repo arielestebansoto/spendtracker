@@ -38,6 +38,19 @@ class MigrationIT extends PostgresIntegrationTest {
 		assertThat(stages("migration_existing")).containsExactlyInAnyOrder("PROCESSING:ENRICHMENT", "PENDING:null");
 	}
 
+	@Test
+	void v14BackfillsUpdatedAtFromCreatedAt() throws Exception {
+		Flyway beforeV14 = flywayTo("migration_updated_at", "13");
+		beforeV14.migrate();
+		insertSpends("migration_updated_at");
+		execute("migration_updated_at", "UPDATE spends SET created_at = '2026-01-15 10:30:00'");
+
+		flyway("migration_updated_at").migrate();
+
+		assertThat(query("migration_updated_at", "SELECT updated_at FROM spends"))
+			.containsOnly("2026-01-15 10:30:00");
+	}
+
 	private Flyway flyway(String schema) {
 		return flywayTo(schema, "latest");
 	}
@@ -73,6 +86,25 @@ class MigrationIT extends PostgresIntegrationTest {
 			ResultSet rs = s.executeQuery("SELECT status, processing_stage FROM spends");
 			while (rs.next()) {
 				result.add(rs.getString(1) + ":" + rs.getString(2));
+			}
+		}
+		return result;
+	}
+
+	private void execute(String schema, String sql) throws Exception {
+		try (Connection c = connection(); Statement s = c.createStatement()) {
+			s.execute("SET search_path TO " + schema);
+			s.execute(sql);
+		}
+	}
+
+	private List<String> query(String schema, String sql) throws Exception {
+		List<String> result = new ArrayList<>();
+		try (Connection c = connection(); Statement s = c.createStatement()) {
+			s.execute("SET search_path TO " + schema);
+			ResultSet rs = s.executeQuery(sql);
+			while (rs.next()) {
+				result.add(rs.getString(1));
 			}
 		}
 		return result;

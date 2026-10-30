@@ -11,7 +11,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -45,6 +49,7 @@ class SpendServiceTest {
 
     private static final LocalDate START = LocalDate.of(2026, 10, 1);
     private static final LocalDate END = LocalDate.of(2026, 10, 31);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 30, 12, 0);
 
     @Mock
     private SpendRepository spendRepository;
@@ -57,6 +62,9 @@ class SpendServiceTest {
 
     @Mock
     private ReceiptQueuePublisher queuePublisher;
+
+    @Spy
+    private Clock clock = Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
 
     @InjectMocks
     private SpendService spendService;
@@ -230,6 +238,29 @@ class SpendServiceTest {
 
         assertThat(spend.getDescription()).isEqualTo("Edited");
         assertThat(spend.getAmount()).isEqualByComparingTo("99.00");
+    }
+
+    @Test
+    void editStampsUpdatedAtAndReturnsIt() {
+        Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.PROCESSED);
+        owns(spend);
+        when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(category()));
+
+        SpendDetailResponse response = spendService.update(spend.getId(), updateRequest(), spend.getUser().getId());
+
+        assertThat(spend.getUpdatedAt()).isEqualTo(NOW);
+        assertThat(response.updatedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void rejectedEditLeavesUpdatedAtUntouched() {
+        Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.PROCESSING);
+        owns(spend);
+
+        assertThatThrownBy(() -> spendService.update(spend.getId(), updateRequest(), spend.getUser().getId()))
+            .isInstanceOf(ResponseStatusException.class);
+
+        assertThat(spend.getUpdatedAt()).isNull();
     }
 
     // ---- reclassify ----

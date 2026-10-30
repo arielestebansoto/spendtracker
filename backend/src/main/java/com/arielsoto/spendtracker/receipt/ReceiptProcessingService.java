@@ -351,8 +351,10 @@ public class ReceiptProcessingService {
         String category = enrichmentService.reclassify(
             spend.getUser(), spend.getDescription(), spend.getItems(), rawText
         );
+        LocalDateTime now = LocalDateTime.now(clock);
         spend.setCategory(categoryFor(category));
-        spend.getReceiptMetadata().setClassifiedAt(LocalDateTime.now(clock));
+        spend.setUpdatedAt(now);
+        spend.getReceiptMetadata().setClassifiedAt(now);
         spend.setStatus(SpendStatus.PROCESSED);
     }
 
@@ -392,6 +394,7 @@ public class ReceiptProcessingService {
                 .build());
         }
 
+        spend.setUpdatedAt(now);
         spend.getReceiptMetadata().setRawResponse(result.rawResponse());
         spend.getReceiptMetadata().setClassifiedAt(now);
         spend.setStatus(SpendStatus.PROCESSED);

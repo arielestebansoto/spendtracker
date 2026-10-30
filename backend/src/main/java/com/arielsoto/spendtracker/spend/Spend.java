@@ -77,6 +77,11 @@ public class Spend {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    // When the data (amount, description, date, category) last changed, by a user edit or by Enrichment.
+    // Status changes are tracked by statusChangedAt instead.
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
     // The stage only means something while PROCESSING, so leaving that status clears it.
     public void setStatus(SpendStatus status) {
         this.status = status;
@@ -87,9 +92,12 @@ public class Spend {
     }
 
     @PrePersist
-    void initStatusChangedAt() {
+    void initTimestamps() {
         if (statusChangedAt == null) {
             statusChangedAt = LocalDateTime.now();
+        }
+        if (updatedAt == null) {
+            updatedAt = LocalDateTime.now();
         }
     }
 
