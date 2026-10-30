@@ -14,9 +14,12 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 @ConditionalOnProperty(prefix = "app.aws.bedrock", name = "enabled", havingValue = "true")
 public class BedrockConfig {
 
+    // Caps a whole call, retries included, so Enrichment fits in the claim lease and the queue's visibility timeout.
     @Bean
-    public BedrockRuntimeClient bedrockRuntimeClient() {
-        return BedrockRuntimeClient.create();
+    public BedrockRuntimeClient bedrockRuntimeClient(BedrockProperties properties) {
+        return BedrockRuntimeClient.builder()
+            .overrideConfiguration(config -> config.apiCallTimeout(properties.apiCallTimeout()))
+            .build();
     }
 
     @Bean

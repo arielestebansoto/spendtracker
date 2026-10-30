@@ -19,10 +19,13 @@ import software.amazon.awssdk.services.s3.S3Client;
 )
 class S3StorageConfig {
 
+    // Caps a whole call, retries included. The Extraction worker downloads the image, so this counts
+    // towards the claim lease and the queue's visibility timeout.
     @Bean
     S3Client s3Client(S3Properties properties) {
         return S3Client.builder()
             .region(Region.of(properties.region()))
+            .overrideConfiguration(config -> config.apiCallTimeout(properties.apiCallTimeout()))
             .credentialsProvider(
                 StaticCredentialsProvider.create(
                     AwsBasicCredentials.create(
