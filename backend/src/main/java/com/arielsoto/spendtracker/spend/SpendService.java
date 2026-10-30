@@ -2,7 +2,9 @@ package com.arielsoto.spendtracker.spend;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +38,7 @@ public class SpendService {
     private final CategoryRepository categoryRepository;
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
+    private final Clock clock;
 
     public SpendDetailResponse findByIdAndUserId(
         UUID id,
@@ -125,6 +128,7 @@ public class SpendService {
         spend.setDescription(request.description());
         spend.setAmount(request.amount());
         spend.setSpendDate(request.spendDate());
+        spend.setUpdatedAt(LocalDateTime.now(clock));
 
         return toDetailResponse(spend);
     }
@@ -233,6 +237,7 @@ public class SpendService {
             spend.getAmount(),
             spend.getSpendDate(),
             spend.getCreatedAt(),
+            spend.getUpdatedAt(),
             spend.receiptUrl(),
             spend.getStatus()
         );

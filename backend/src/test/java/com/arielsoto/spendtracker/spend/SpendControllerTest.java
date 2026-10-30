@@ -132,7 +132,7 @@ class SpendControllerTest {
         UUID spendId = UUID.randomUUID();
         when(spendService.reclassify(spendId, user.getId())).thenReturn(new SpendDetailResponse(
             spendId, UUID.randomUUID(), "Comida", "Lunch", BigDecimal.TEN, LocalDate.now(),
-            null, "/api/v1/spends/" + spendId + "/receipt", SpendStatus.PROCESSING
+            null, null, "/api/v1/spends/" + spendId + "/receipt", SpendStatus.PROCESSING
         ));
 
         mockMvc.perform(post("/api/v1/spends/{id}/reclassify", spendId))

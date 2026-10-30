@@ -15,6 +15,7 @@ public record SpendDetailResponse(
     BigDecimal amount,
     LocalDate spendDate,
     LocalDateTime createdAt,
+    LocalDateTime updatedAt,
     String receiptUrl,
     SpendStatus status
 ) {

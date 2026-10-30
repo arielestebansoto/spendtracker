@@ -1,6 +1,7 @@
 package com.arielsoto.spendtracker.receipt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -381,6 +382,7 @@ class ReceiptProcessingServiceTest {
         assertEquals(Map.of("output", "raw"), spend.getReceiptMetadata().getRawResponse());
         assertEquals(NOW, spend.getReceiptMetadata().getClassifiedAt());
         assertEquals(NOW, spend.getItems().get(0).getCreatedAt());
+        assertEquals(NOW, spend.getUpdatedAt());
         verify(spendRepository).save(spend);
     }
 
@@ -488,6 +490,7 @@ class ReceiptProcessingServiceTest {
         assertThrows(ReceiptProcessingException.class, () -> service.processEnrichment(spend.getId(), true));
 
         assertEquals(SpendStatus.FAILED, spend.getStatus());
+        assertNull(spend.getUpdatedAt());
         verify(spendRepository).save(spend);
         verify(storageService, never()).deleteFile(any());
         verify(spendRepository, never()).delete(any(Spend.class));
@@ -678,6 +681,7 @@ class ReceiptProcessingServiceTest {
     // ---- category-only enrichment (Reclassify) ----
 
     private static final LocalDate USER_DATE = LocalDate.of(2026, 3, 9);
+    private static final LocalDateTime USER_EDITED_AT = LocalDateTime.of(2026, 3, 9, 18, 0);
 
     // A processed Spend the user has corrected, locked in PROCESSING while the reclassification runs.
     private Spend spendBeingReclassified(SpendStatus status) {
@@ -686,6 +690,7 @@ class ReceiptProcessingServiceTest {
         spend.setDescription("Edited by the user");
         spend.setAmount(new BigDecimal("25.00"));
         spend.setSpendDate(USER_DATE);
+        spend.setUpdatedAt(USER_EDITED_AT);
         spend.getItems().add(SpendItem.builder().spend(spend).description("Milk").amount(new BigDecimal("4.50")).position(0).build());
         spend.setReceiptMetadata(ReceiptMetadata.builder()
             .spend(spend).rawOcrText("TOTAL 10").rawResponse(Map.of("output", "original"))
@@ -718,6 +723,7 @@ class ReceiptProcessingServiceTest {
         assertEquals(List.of("Milk"), spend.getItems().stream().map(SpendItem::getDescription).toList());
         assertEquals(Map.of("output", "original"), spend.getReceiptMetadata().getRawResponse());
         assertEquals(NOW, spend.getReceiptMetadata().getClassifiedAt());
+        assertEquals(NOW, spend.getUpdatedAt());
         verify(enrichmentService, never()).enrich(any(), any());
         verify(spendRepository).save(spend);
     }
@@ -830,6 +836,7 @@ class ReceiptProcessingServiceTest {
         assertEquals(comida, spend.getCategory());
         assertEquals(new BigDecimal("25.00"), spend.getAmount());
         assertEquals("Edited by the user", spend.getDescription());
+        assertEquals(USER_EDITED_AT, spend.getUpdatedAt());
         verify(spendRepository).save(spend);
         verify(spendRepository, never()).delete(any(Spend.class));
     }
