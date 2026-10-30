@@ -38,13 +38,12 @@ public class SecurityConfig {
     @Value("#{'${app.cors.allowed-headers}'.split(',')}")
     private List<String> allowedHeaders;
 
-    @Value("${app.oauth2.default-success-url}")
-    private String oauth2DefaultSuccessUrl;
-
     @Value("${app.logout.logout-url}")
     private String logoutUrl;
 
     private final SecurityAuditLogger auditLogger;
+
+    private final OAuth2LoginAuditHandler oauth2LoginAuditHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {        
@@ -102,25 +101,9 @@ public class SecurityConfig {
             )
             
             .oauth2Login(oauth -> oauth
-                 .successHandler((request, response, authentication) -> {
+                .successHandler(oauth2LoginAuditHandler)
 
-                    auditLogger.loginSuccess(
-                        authentication.getName(),
-                        ClientIpResolver.resolve(request)
-                    );
-
-                    response.sendRedirect(oauth2DefaultSuccessUrl);
-                })
-
-                .failureHandler((request, response, exception) -> {
-
-                    auditLogger.loginFailed(
-                        exception.getClass().getSimpleName(),
-                        ClientIpResolver.resolve(request)
-                    );
-
-                    response.setStatus(401);
-                })
+                .failureHandler(oauth2LoginAuditHandler)
 
                 .userInfoEndpoint(userInfo -> userInfo
                     .userService(customOAuth2UserService)
