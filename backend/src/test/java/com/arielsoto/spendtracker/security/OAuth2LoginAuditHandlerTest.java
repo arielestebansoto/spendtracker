@@ -75,7 +75,7 @@ class OAuth2LoginAuditHandlerTest {
     }
 
     @Test
-    void oauth2FailureLogsProviderFromCallbackPathAndErrorCode() throws Exception {
+    void oauth2FailureLogsProviderAndErrorCodeThenRedirectsToTheFrontendWithTheCode() throws Exception {
         request.setRequestURI("/login/oauth2/code/google");
         OAuth2AuthenticationException exception = new OAuth2AuthenticationException(
             new OAuth2Error("access_denied", "The user denied access", null)
@@ -84,11 +84,11 @@ class OAuth2LoginAuditHandlerTest {
         handler.onAuthenticationFailure(request, response, exception);
 
         verify(auditLogger).loginFailed("google", "access_denied", "203.0.113.7");
-        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getRedirectedUrl()).isEqualTo(FAILURE_URL + "?error=access_denied");
     }
 
     @Test
-    void otherFailureLogsExceptionTypeAndUnknownProvider() throws Exception {
+    void otherFailureLogsExceptionTypeThenRedirectsWithAGenericCode() throws Exception {
         request.setRequestURI("/somewhere-else");
 
         handler.onAuthenticationFailure(
@@ -98,7 +98,7 @@ class OAuth2LoginAuditHandlerTest {
         );
 
         verify(auditLogger).loginFailed("unknown", "BadCredentialsException", "203.0.113.7");
-        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getRedirectedUrl()).isEqualTo(FAILURE_URL + "?error=login_failed");
     }
 
     @Test

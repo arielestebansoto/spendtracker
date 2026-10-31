@@ -19,7 +19,7 @@ The check runs on every login, for existing users too. Removing an email revokes
 | Env var | Default | Meaning |
 | --- | --- | --- |
 | `ACCESS_ALLOWLIST_ENABLED` | `true` (`false` with the `dev` profile) | When `false`, anyone with a Google or GitHub account can log in. |
-| `OAUTH2_FAILURE_URL` | `OAUTH2_SUCCESS_URL` | The frontend page with the login buttons (the site root), where a rejected login is sent. Set it if `OAUTH2_SUCCESS_URL` is not the root. |
+| `OAUTH2_FAILURE_URL` | `OAUTH2_SUCCESS_URL` | The frontend page with the login buttons (the site root), where every failed login is sent with `?error=<code>` (`not_invited`, `access_denied` when the user cancels at the provider, or `login_failed`). Set it if `OAUTH2_SUCCESS_URL` is not the root. |
 
 ## Managing invitations
 
