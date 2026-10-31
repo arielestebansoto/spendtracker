@@ -8,7 +8,5 @@ import java.time.Duration;
 public record S3Properties(
     String bucketName,
     String region,
-    String accessKeyId,
-    String secretAccessKey,
     Duration apiCallTimeout
 ) {}

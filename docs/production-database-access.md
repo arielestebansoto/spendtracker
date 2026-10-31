@@ -47,7 +47,7 @@ The default outbound rule (all traffic to `0.0.0.0/0`) already covers both outbo
 
 ### One-time setup on AWS
 
-1. **Instance role.** The backend authenticates to AWS with an access key, so the EC2 instance may have no IAM role. In **IAM > Roles > Create role**, trusted entity **AWS service > EC2**, attach the managed policy `AmazonSSMManagedInstanceCore`, name it `<env>-spendtracker-ec2-ssm`. Then **EC2 > the instance > Actions > Security > Modify IAM role** and select it. If the instance already has a role, attach the policy to that role instead.
+1. **Instance role.** The instance runs with the `prod-spendtracker-ec2` role, which the backend also uses for its AWS calls (`docs/aws-iam.md`). Check that the AWS managed policy `AmazonSSMManagedInstanceCore` is attached to it: **IAM > Roles > `prod-spendtracker-ec2` > Permissions**.
 2. **SSM Agent.** Amazon Linux ships with it running. After attaching the role, wait a few minutes (or run `sudo systemctl restart amazon-ssm-agent` on the instance) and check that the instance appears as **Online** in **Systems Manager > Fleet Manager**.
 3. **Your IAM permissions.** An admin already has them. A non-admin user needs this policy:
 
