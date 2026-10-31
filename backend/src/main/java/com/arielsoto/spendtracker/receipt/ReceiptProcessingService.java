@@ -49,6 +49,7 @@ public class ReceiptProcessingService {
     private final AiUsageService aiUsageService;
     private final SpendReceiptStorageService storageService;
     private final ReceiptQueuePublisher queuePublisher;
+    private final ReceiptUploadRateLimiter uploadRateLimiter;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
@@ -58,11 +59,13 @@ public class ReceiptProcessingService {
     private static final Duration CLAIM_LEASE = Duration.ofSeconds(60);
 
     /**
-     * Validates the file and the AI quota, stores the image, creates a PENDING Spend with
-     * provisional values and queues it for Extraction. Nothing is created if validation fails.
+     * Validates the file, the per-user upload limit and the AI quota, stores the image, creates a
+     * PENDING Spend with provisional values and queues it for Extraction. Nothing is created if
+     * validation fails.
      */
     public Spend uploadReceipt(UserApp user, MultipartFile file) {
         ReceiptFileType fileType = ReceiptValidator.validate(file);
+        uploadRateLimiter.check(user);
         aiUsageService.validateAndPickStrategy(user);
         aiUsageService.validateBedrockUsage(user);
 

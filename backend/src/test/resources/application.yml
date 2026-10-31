@@ -20,6 +20,9 @@ app:
   stuck-spend-cleanup:
     threshold: PT15M
     interval: PT5M
+  receipt-upload-limit:
+    per-minute: 5
+    per-day: 30
   ai-usage:
     global:
       analyze-expense-pages: 100

@@ -103,6 +103,10 @@ app:
   bedrock:
     model-id: ${BEDROCK_MODEL_ID:amazon.titan-text-lite-v1}
     api-call-timeout: ${BEDROCK_API_CALL_TIMEOUT:PT45S}
+  receipt-upload-limit:
+    # Receipt uploads per user, counted from Spends with a Receipt (see ReceiptUploadRateLimiter).
+    per-minute: ${RECEIPT_UPLOADS_PER_MINUTE:5}
+    per-day: ${RECEIPT_UPLOADS_PER_DAY:30}
   ai-usage:
     global:
       analyze-expense-pages: 100
