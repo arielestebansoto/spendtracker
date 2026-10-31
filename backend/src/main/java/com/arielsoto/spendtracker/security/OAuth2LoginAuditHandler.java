@@ -24,6 +24,8 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
     // The OAuth2 provider redirects back to /login/oauth2/code/{registrationId}
     private static final String CALLBACK_PATH_PREFIX = "/login/oauth2/code/";
 
+    private static final String GENERIC_ERROR_CODE = "login_failed";
+
     private final AuthenticatedUserService authenticatedUserService;
 
     private final SecurityAuditLogger auditLogger;
@@ -79,18 +81,13 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
             ClientIpResolver.resolve(request)
         );
 
-        // The browser lands here after the provider's redirect, so a person who is not invited is sent back
-        // to the frontend to read why, instead of a blank 401 page.
-        if (EmailAllowlist.NOT_INVITED.equals(reason)) {
-            response.sendRedirect(
-                UriComponentsBuilder.fromUriString(failureUrl)
-                    .queryParam("error", EmailAllowlist.NOT_INVITED)
-                    .toUriString()
-            );
-            return;
-        }
-
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        // The browser lands here after the provider's redirect, so it is sent back to the frontend
+        // to read why the login failed, instead of a blank 401 page.
+        response.sendRedirect(
+            UriComponentsBuilder.fromUriString(failureUrl)
+                .queryParam("error", resolveErrorCode(exception))
+                .toUriString()
+        );
     }
 
     private String resolveProvider(HttpServletRequest request) {
@@ -113,5 +110,16 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
         }
 
         return exception.getClass().getSimpleName();
+    }
+
+    // Only the OAuth2 error code goes in the URL; any other failure gets a generic code,
+    // so Java class names stay in the log.
+    private String resolveErrorCode(AuthenticationException exception) {
+
+        if (exception instanceof OAuth2AuthenticationException oauth2Exception) {
+            return oauth2Exception.getError().getErrorCode();
+        }
+
+        return GENERIC_ERROR_CODE;
     }
 }

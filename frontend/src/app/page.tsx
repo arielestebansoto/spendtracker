@@ -7,18 +7,31 @@ import { apiUrl } from "./lib/api";
 import { useAuth } from "./components/AuthProvider";
 import LoadingState from "./components/LoadingState";
 
-// The backend sends a person whose email is not in the allowlist back here with ?error=not_invited.
-function NotInvitedMessage() {
-  const searchParams = useSearchParams();
+// The backend sends a failed login back here with ?error=<code>. The code itself is never shown:
+// unknown codes get the generic message.
+function loginErrorMessage(code: string): string {
+  if (code === "not_invited") {
+    return "This app is invite-only and your email is not on the list. If you were invited and used GitHub, make your email public in your GitHub profile, or continue with Google.";
+  }
 
-  if (searchParams.get("error") !== "not_invited") {
+  if (code === "access_denied") {
+    return "You cancelled the login. You can try again.";
+  }
+
+  return "We couldn't log you in. Please try again.";
+}
+
+function LoginErrorMessage() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get("error");
+
+  if (!code) {
     return null;
   }
 
   return (
     <p className="mt-6 rounded-lg border border-border px-4 py-3 text-sm text-muted-foreground">
-      This app is invite-only and your email is not on the list. If you were invited and used GitHub, make
-      your email public in your GitHub profile, or continue with Google.
+      {loginErrorMessage(code)}
     </p>
   );
 }
@@ -55,7 +68,7 @@ export default function HomePage() {
           </p>
 
           <Suspense fallback={null}>
-            <NotInvitedMessage />
+            <LoginErrorMessage />
           </Suspense>
 
           <div className="mt-8 flex flex-col gap-3">
