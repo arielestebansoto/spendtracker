@@ -32,6 +32,12 @@ services:
       postgres:
         condition: service_healthy
 
+    # Dev authenticates to AWS with the dev-spendtracker user's key from .env. Prod has no keys: the
+    # SDK default credentials chain finds the EC2 instance role (docs/aws-iam.md).
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
     ports:
       - "8080:8080"
 

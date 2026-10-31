@@ -62,7 +62,8 @@ cd frontend && pnpm build
 - Frontend Next.js config: `output: "standalone"` for Docker deployments
 - Session cookies: secure in prod, non-secure in dev
 - CORS origins must be set via env var `CORS_ALLOWED_ORIGINS`
-- SQS queue naming (`<env>-receipt-extraction`, `<env>-spend-enrichment`, plus `-dlq`), queue URL env vars and IAM permissions: `docs/sqs-provisioning.md` (created by `scripts/provision-sqs.sh`)
+- SQS queue naming (`<env>-receipt-extraction`, `<env>-spend-enrichment`, plus `-dlq`), queue URL env vars and SQS IAM permissions: `docs/sqs-provisioning.md` (created by hand in the AWS console)
+- AWS credentials: every client uses the SDK default credentials chain, never explicit keys. Prod uses the EC2 instance role, dev the `dev-spendtracker` user's key in `.env`. IAM roles, users and policies per environment: `docs/aws-iam.md`
 - Production RDS is private; connecting a client (DBeaver) through the EC2 instance via SSM port forwarding or an SSH tunnel, and the security group rules: `docs/production-database-access.md`
 - Login is limited to the emails in the `allowed_emails` table (managed by hand with SQL), toggled by `ACCESS_ALLOWLIST_ENABLED` (on by default, off in `dev`): `docs/access-allowlist.md`
 - Required env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OAUTH2_*` keys
