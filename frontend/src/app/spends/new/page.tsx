@@ -4,7 +4,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
-import { createSpendFromReceipt, ReceiptQuotaError } from "@/app/lib/receipt";
+import {
+  createSpendFromReceipt,
+  ReceiptUploadError,
+  ReceiptUploadErrorKind,
+} from "@/app/lib/receipt";
 import LoadingState from "@/app/components/LoadingState";
 import ReceiptUpload from "@/app/components/ReceiptUpload";
 
@@ -25,6 +29,15 @@ type FormErrors = Partial<Record<keyof FormState, string>>;
 type Mode = "receipt" | "manual";
 type Status = "idle" | "uploading" | "processing" | "error";
 
+const RECEIPT_ERROR_MESSAGES: Record<ReceiptUploadErrorKind, string> = {
+  invalid_file: "This file is not a supported receipt. Upload a JPEG or PNG photo, or a 1-page PDF.",
+  too_large: "The file is larger than 5 MB.",
+  ai_quota: "You have no AI quota left to read receipts. Enter the details manually instead.",
+  rate_limit_minute: "Too many uploads in a short time. Wait a minute and try again.",
+  rate_limit_day: "You reached today's receipt upload limit. Try again tomorrow or enter the details manually.",
+  unknown: "Failed to upload receipt. Please try again or enter details manually.",
+};
+
 const initialFormState: FormState = {
   categoryId: "",
   description: "",
@@ -42,6 +55,7 @@ export default function NewSpendPage() {
   const [form, setForm] = useState<FormState>(initialFormState);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState("");
+  const [receiptError, setReceiptError] = useState("");
 
   const isCategoryDisabled = useMemo(() => categories.length === 0, [categories.length]);
 
@@ -81,17 +95,15 @@ export default function NewSpendPage() {
 
   async function handleReceiptUpload(file: File) {
     setStatus("processing");
-    setSubmitError("");
+    setReceiptError("");
 
     try {
       const created = await createSpendFromReceipt(file);
       router.push(`/spends/${created.id}`);
     } catch (error) {
       setStatus("error");
-      setSubmitError(
-        error instanceof ReceiptQuotaError
-          ? "You have no AI quota left to read receipts. Enter the details manually instead."
-          : "Failed to upload receipt. Please try again or enter details manually."
+      setReceiptError(
+        RECEIPT_ERROR_MESSAGES[error instanceof ReceiptUploadError ? error.kind : "unknown"]
       );
     }
   }
@@ -140,7 +152,9 @@ export default function NewSpendPage() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Receipt</h2>
           <ReceiptUpload
-            onFileSelected={handleReceiptUpload}
+            onUpload={handleReceiptUpload}
+            onSelectionChange={() => setReceiptError("")}
+            error={receiptError}
             isProcessing={status === "processing"}
             disabled={status === "uploading" || status === "processing"}
           />
@@ -168,7 +182,9 @@ export default function NewSpendPage() {
         {mode === "receipt" ? (
           <div className="space-y-4">
             <ReceiptUpload
-              onFileSelected={handleReceiptUpload}
+              onUpload={handleReceiptUpload}
+              onSelectionChange={() => setReceiptError("")}
+              error={receiptError}
               isProcessing={status === "processing"}
               disabled={status === "uploading" || status === "processing"}
             />
@@ -177,6 +193,7 @@ export default function NewSpendPage() {
               onClick={() => {
                 setMode("manual");
                 setSubmitError("");
+                setReceiptError("");
                 setStatus("idle");
               }}
               disabled={status === "uploading" || status === "processing"}
@@ -203,6 +220,7 @@ export default function NewSpendPage() {
               onClick={() => {
                 setMode("receipt");
                 setSubmitError("");
+                setReceiptError("");
                 setStatus("idle");
               }}
               disabled={status === "uploading" || status === "processing"}
