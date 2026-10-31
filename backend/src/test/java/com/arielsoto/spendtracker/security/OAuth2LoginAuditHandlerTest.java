@@ -21,6 +21,7 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
+import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
 import com.arielsoto.spendtracker.user.UserApp;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,6 +73,24 @@ class OAuth2LoginAuditHandlerTest {
 
         verify(auditLogger).loginSuccess("github", user.getId(), "203.0.113.7");
         assertThat(response.getRedirectedUrl()).isEqualTo(SUCCESS_URL);
+    }
+
+    @Test
+    void successStoresTheAppUserIdInTheSessionForTheLogs() throws Exception {
+        OAuth2AuthenticationToken token = new OAuth2AuthenticationToken(
+            new DefaultOAuth2User(List.of(), Map.of("id", 42), "id"),
+            List.of(),
+            "github"
+        );
+        UserApp user = UserApp.builder()
+            .id(UUID.randomUUID())
+            .oauthId("42")
+            .build();
+        when(authenticatedUserService.getCurrentUser(token)).thenReturn(user);
+
+        handler.onAuthenticationSuccess(request, response, token);
+
+        assertThat(request.getSession().getAttribute(SecurityMdcFilter.APP_USER_ID)).isEqualTo(user.getId());
     }
 
     @Test

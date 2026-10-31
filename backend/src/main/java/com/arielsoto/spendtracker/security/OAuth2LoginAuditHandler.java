@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.arielsoto.spendtracker.loggin.ClientIpResolver;
+import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -56,6 +57,9 @@ public class OAuth2LoginAuditHandler implements AuthenticationSuccessHandler, Au
         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
 
         UserApp user = authenticatedUserService.getCurrentUser(token);
+
+        // The session was already migrated on login, so the attribute lands on the one the browser keeps
+        request.getSession().setAttribute(SecurityMdcFilter.APP_USER_ID, user.getId());
 
         auditLogger.loginSuccess(
             token.getAuthorizedClientRegistrationId(),
