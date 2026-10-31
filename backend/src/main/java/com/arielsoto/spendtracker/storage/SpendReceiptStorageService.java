@@ -25,16 +25,17 @@ public class SpendReceiptStorageService {
         this.fileStorageService = fileStorageService;
     }
 
+    /**
+     * Stores the Receipt under spends/{userId}/{spendId}.{extension}. The extension and content type
+     * come from the detected file type, never from the client's file name or Content-Type.
+     */
     public StoredFile store(
         UserApp user,
         UUID spendId,
-        MultipartFile file
+        MultipartFile file,
+        String extension,
+        String contentType
     ) {
-
-        String extension = getExtension(
-            file.getOriginalFilename()
-        );
-
         String key = String.format(
             "spends/%s/%s.%s",
             user.getId(),
@@ -44,22 +45,8 @@ public class SpendReceiptStorageService {
 
         return fileStorageService.store(
             file,
-            key
-        );
-    }
-
-    private String getExtension(
-        String filename
-    ) {
-        if (
-            filename == null
-            || !filename.contains(".")
-        ) {
-            return "bin";
-        }
-
-        return filename.substring(
-            filename.lastIndexOf(".") + 1
+            key,
+            contentType
         );
     }
 

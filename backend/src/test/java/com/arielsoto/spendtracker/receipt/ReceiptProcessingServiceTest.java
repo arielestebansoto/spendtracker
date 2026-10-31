@@ -93,7 +93,7 @@ class ReceiptProcessingServiceTest {
     private final Category uncategorized = Category.builder().id(UUID.randomUUID()).name("Uncategorized").build();
 
     private final MockMultipartFile file =
-        new MockMultipartFile("receipt", "r.jpg", "image/jpeg", new byte[] {1, 2, 3});
+        new MockMultipartFile("receipt", "r.jpg", "image/jpeg", new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1});
 
     @BeforeEach
     void setUp() {
@@ -117,7 +117,7 @@ class ReceiptProcessingServiceTest {
     @Test
     void upload_createsPendingSpendStoresImageAndPublishesToExtractionQueue() {
         when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(uncategorized));
-        when(storageService.store(any(), any(), any()))
+        when(storageService.store(any(), any(), any(), any(), any()))
             .thenReturn(new StoredFile("spends/u/s.jpg", "image/jpeg", 3));
 
         Spend spend = service.uploadReceipt(user, file);
@@ -127,6 +127,21 @@ class ReceiptProcessingServiceTest {
         assertEquals("spends/u/s.jpg", spend.getReceiptKey());
         assertEquals(uncategorized, spend.getCategory());
         verify(queuePublisher).publishForExtraction(spend.getId());
+    }
+
+    @Test
+    void upload_storesWithTheExtensionAndContentTypeOfTheDetectedType() {
+        when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(uncategorized));
+        when(storageService.store(any(), any(), any(), any(), any()))
+            .thenReturn(new StoredFile("spends/u/s.jpg", "image/jpeg", 4));
+        MockMultipartFile mislabeled = new MockMultipartFile(
+            "receipt", "x.png/../evil", "application/octet-stream",
+            new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1}
+        );
+
+        service.uploadReceipt(user, mislabeled);
+
+        verify(storageService).store(eq(user), any(), eq(mislabeled), eq("jpg"), eq("image/jpeg"));
     }
 
     @Test
@@ -153,7 +168,7 @@ class ReceiptProcessingServiceTest {
     @Test
     void upload_whenPublishFailsLeavesFailedSpendWithItsImage() {
         when(categoryRepository.findByName("Uncategorized")).thenReturn(Optional.of(uncategorized));
-        when(storageService.store(any(), any(), any()))
+        when(storageService.store(any(), any(), any(), any(), any()))
             .thenReturn(new StoredFile("spends/u/s.jpg", "image/jpeg", 3));
         doThrow(new RuntimeException("sqs down")).when(queuePublisher).publishForExtraction(any());
 

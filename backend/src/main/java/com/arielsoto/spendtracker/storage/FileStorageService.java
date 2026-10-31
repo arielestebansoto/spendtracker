@@ -7,7 +7,8 @@ import org.springframework.core.io.Resource;
 public interface FileStorageService {
     StoredFile store(
         MultipartFile file,
-        String key
+        String key,
+        String contentType
     );
 
     Resource load(String key);
