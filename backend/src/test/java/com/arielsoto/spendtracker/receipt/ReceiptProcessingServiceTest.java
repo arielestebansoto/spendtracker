@@ -83,6 +83,9 @@ class ReceiptProcessingServiceTest {
     @Mock
     private ReceiptQueuePublisher queuePublisher;
 
+    @Mock
+    private ReceiptUploadRateLimiter uploadRateLimiter;
+
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 22, 12, 0);
 
     private final Clock clock = Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
@@ -99,7 +102,7 @@ class ReceiptProcessingServiceTest {
     void setUp() {
         service = new ReceiptProcessingService(
             spendRepository, receiptMetadataRepository, categoryRepository, extractionService,
-            enrichmentService, aiUsageService, storageService, queuePublisher, clock,
+            enrichmentService, aiUsageService, storageService, queuePublisher, uploadRateLimiter, clock,
             new TransactionTemplate(mock(PlatformTransactionManager.class))
         );
         // The database assigns the id on first save.
@@ -142,6 +145,17 @@ class ReceiptProcessingServiceTest {
         service.uploadReceipt(user, mislabeled);
 
         verify(storageService).store(eq(user), any(), eq(mislabeled), eq("jpg"), eq("image/jpeg"));
+    }
+
+    @Test
+    void upload_overTheUploadLimitCreatesNothing() {
+        doThrow(new ReceiptUploadRateLimitException("minute", "limit"))
+            .when(uploadRateLimiter).check(user);
+
+        assertThrows(ReceiptUploadRateLimitException.class, () -> service.uploadReceipt(user, file));
+
+        verify(spendRepository, never()).save(any());
+        verifyNoInteractions(storageService, queuePublisher, aiUsageService);
     }
 
     @Test

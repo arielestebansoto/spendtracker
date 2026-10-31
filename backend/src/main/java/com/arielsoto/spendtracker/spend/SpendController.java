@@ -29,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
+import com.arielsoto.spendtracker.receipt.ReceiptUploadRateLimitException;
 import com.arielsoto.spendtracker.receipt.ReceiptValidationException;
 import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
@@ -214,6 +215,15 @@ public class SpendController {
                 .body(Map.of(
                     "error", e.getMessage(),
                     "reason", "invalid_file"
+                ));
+        } catch (ReceiptUploadRateLimitException e) {
+            log.warn("api_create_spend_from_receipt_rate_limited userId={} window={}",
+                user.getId(), e.getWindow());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of(
+                    "error", e.getMessage(),
+                    "reason", "rate_limit",
+                    "window", e.getWindow()
                 ));
         } catch (AiUsageLimitExceededException e) {
             log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",

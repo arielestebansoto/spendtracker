@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
+import com.arielsoto.spendtracker.receipt.ReceiptUploadRateLimitException;
 import com.arielsoto.spendtracker.receipt.ReceiptValidationException;
 import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
@@ -89,6 +90,17 @@ class SpendControllerTest {
             .andExpect(status().isTooManyRequests())
             .andExpect(jsonPath("$.reason").value("ai_quota"))
             .andExpect(jsonPath("$.resourceType").value("TEXTRACT"));
+    }
+
+    @Test
+    void fromReceiptReturns429WhenTheUploadLimitIsReached() throws Exception {
+        when(receiptProcessingService.uploadReceipt(any(), any()))
+            .thenThrow(new ReceiptUploadRateLimitException("minute", "Too many receipt uploads. Try again in a minute."));
+
+        mockMvc.perform(multipart("/api/v1/spends/from-receipt").file(receipt))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(jsonPath("$.reason").value("rate_limit"))
+            .andExpect(jsonPath("$.window").value("minute"));
     }
 
     @Test

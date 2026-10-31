@@ -203,6 +203,39 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	// The first worker claims, stalls past the lease, and the second worker claims the same Spend.
+	@Test
+	void countsTheUsersReceiptUploadsCreatedAfterTheGivenTime() {
+		UserApp owner = saveSpendWithReceipt(newSpend(SpendStatus.PROCESSED, null), "spends/a.jpg").getUser();
+		saveSpendWithReceipt(spendOf(owner), "spends/b.pdf");
+		saveSpendWithReceipt(spendOf(owner), null);
+		Spend old = saveSpendWithReceipt(spendOf(owner), "spends/c.png");
+		saveSpendWithReceipt(newSpend(SpendStatus.PROCESSED, null), "spends/other-user.jpg");
+		entityManager.createQuery("UPDATE Spend s SET s.createdAt = :at WHERE s.id = :id")
+			.setParameter("at", LocalDateTime.now().minusDays(2))
+			.setParameter("id", old.getId())
+			.executeUpdate();
+		entityManager.clear();
+
+		long uploads = spendRepository.countByUserIdAndReceiptKeyIsNotNullAndCreatedAtAfter(
+			owner.getId(), LocalDateTime.now().minusDays(1));
+
+		// The manual Spend, the old upload and the other user's upload are not counted.
+		assertThat(uploads).isEqualTo(2);
+	}
+
+	private Spend saveSpendWithReceipt(Spend spend, String receiptKey) {
+		spend.setReceiptKey(receiptKey);
+		Spend saved = spendRepository.save(spend);
+		entityManager.flush();
+		return saved;
+	}
+
+	private Spend spendOf(UserApp owner) {
+		Spend spend = newSpend(SpendStatus.PROCESSED, null);
+		spend.setUser(owner);
+		return spend;
+	}
+
 	private Spend spendTakenOverBySecondWorker() {
 		Spend spend = saveSpend(SpendStatus.PENDING, null);
 		claim(spend.getId(), FIRST_TOKEN);

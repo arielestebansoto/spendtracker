@@ -171,6 +171,9 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
 
     long countByUserId(UUID userId);
 
+    // Receipt uploads by the user since the given time; Spends created by hand have no Receipt.
+    long countByUserIdAndReceiptKeyIsNotNullAndCreatedAtAfter(UUID userId, LocalDateTime since);
+
     @Query("""
         SELECT COALESCE(SUM(s.amount), 0)
         FROM Spend s
