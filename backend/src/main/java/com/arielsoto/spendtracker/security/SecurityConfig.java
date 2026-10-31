@@ -45,6 +45,8 @@ public class SecurityConfig {
 
     private final OAuth2LoginAuditHandler oauth2LoginAuditHandler;
 
+    private final LogoutAuditHandler logoutAuditHandler;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {        
         return http
@@ -120,14 +122,10 @@ public class SecurityConfig {
                     "JSESSIONID",
                     "XSRF-TOKEN"
                 )
-                .logoutSuccessHandler((request, response, authentication) -> {
-
-                    if (authentication != null) {
-                        auditLogger.logout(authentication.getName());
-                    }
-
-                    response.setStatus(HttpServletResponse.SC_OK);
-                })
+                .addLogoutHandler(logoutAuditHandler)
+                .logoutSuccessHandler((request, response, authentication) ->
+                    response.setStatus(HttpServletResponse.SC_OK)
+                )
             )
             
             .build();
