@@ -239,7 +239,8 @@ public class SpendService {
             spend.getCreatedAt(),
             spend.getUpdatedAt(),
             spend.receiptUrl(),
-            spend.getStatus()
+            spend.getStatus(),
+            spend.getFailureReason()
         );
     }
 

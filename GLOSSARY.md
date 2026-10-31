@@ -25,7 +25,7 @@ A user-defined condition ("if it contains X, classify as Y") that steers how a S
 _Avoid_: Filter, Mapping.
 
 **Processing status**:
-The lifecycle of a Spend as it moves through extraction and enrichment: `PENDING` (queued) → `PROCESSING` (extraction/classification running, tracked internally by its Processing stage) → `PROCESSED` (complete), or `FAILED`. Only a Spend created from a Receipt goes through this lifecycle; a manually entered Spend is `PROCESSED` from the moment it is created.
+The lifecycle of a Spend as it moves through extraction and enrichment: `PENDING` (queued) → `PROCESSING` (extraction/classification running, tracked internally by its Processing stage) → `PROCESSED` (complete), or `FAILED`. Only a Spend created from a Receipt goes through this lifecycle; a manually entered Spend is `PROCESSED` from the moment it is created. A `FAILED` Spend can be retried, unless it failed because its Receipt is unreadable (see Unreadable Receipt).
 _Avoid_: Processing state, Receipt status (status belongs to the Spend, not only to its Receipt).
 
 **Processing stage**:
@@ -35,6 +35,10 @@ _Avoid_: Sub-status, Phase.
 **Extraction**:
 The step that reads a Receipt's image into raw text. Produces source data only.
 _Avoid_: OCR step, Scan.
+
+**Unreadable Receipt**:
+A Receipt Extraction cannot read: Textract finds no text in it, or rejects the file (for example a PDF with more than one page). The same file always gives the same result, so its Spend goes to `FAILED` on the first attempt, without redeliveries, and cannot be retried. The pages Textract read still count against the AI quota, because AWS bills them.
+_Avoid_: Bad image, Invalid receipt.
 
 **Enrichment**:
 The step that turns a Receipt's raw text into the Spend's amount, date, description, items and Category, guided by the Category descriptions and the user's Classification Rules.

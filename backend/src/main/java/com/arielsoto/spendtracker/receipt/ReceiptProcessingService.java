@@ -9,6 +9,7 @@ import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.queue.SpendMessage;
+import com.arielsoto.spendtracker.spend.FailureReason;
 import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
@@ -105,13 +106,17 @@ public class ReceiptProcessingService {
 
     /**
      * Retries a FAILED Spend: puts it back to PENDING and queues it for Extraction again, so the
-     * whole pipeline restarts. Any other status is rejected. If queueing fails the Spend goes back
+     * whole pipeline restarts. Any other status is rejected, and so is an unreadable Receipt, which
+     * would fail the same way again. If queueing fails the Spend goes back
      * to FAILED, so it never sits in PENDING without a message, and the error is reported.
      */
     public Spend retry(UserApp user, UUID spendId) {
         Spend spend = spendRepository.findByIdAndUserId(spendId, user.getId()).orElseThrow();
         if (spend.getStatus() != SpendStatus.FAILED) {
             throw new SpendNotRetryableException(spend.getStatus());
+        }
+        if (spend.getFailureReason() == FailureReason.UNREADABLE_RECEIPT) {
+            throw SpendNotRetryableException.unreadableReceipt();
         }
 
         spend.setStatus(SpendStatus.PENDING);
@@ -142,7 +147,8 @@ public class ReceiptProcessingService {
      * expired and whose Spend was claimed by another stops without writing or publishing anything.
      * A failure rethrows so SQS redelivers: the Spend goes back to PENDING so the
      * redelivery is accepted, or to FAILED on the last attempt. Nothing is ever deleted.
-     * Running out of AI quota is not retried: SQS cannot fix it.
+     * Running out of AI quota is not retried: SQS cannot fix it. Neither is an unreadable Receipt: the
+     * same file always gives the same result, so the Spend goes to FAILED for good on the first attempt.
      */
     public void processExtraction(UUID spendId, boolean lastAttempt) {
         Spend spend = spendRepository.findWithUserById(spendId).orElse(null);
@@ -174,6 +180,11 @@ public class ReceiptProcessingService {
             log.warn("receipt_extraction_ai_limit_exceeded spendId={} resourceType={}",
                 spendId, e.getResourceType());
             releaseExtraction(spendId, claimToken, SpendStatus.FAILED);
+        } catch (UnreadableReceiptException e) {
+            log.warn("receipt_extraction_unreadable spendId={} reason={}", spendId, e.getMessage());
+            if (spendRepository.markUnreadable(spendId, claimToken, LocalDateTime.now(clock)) == 0) {
+                logDisplaced("extraction", spendId);
+            }
         } catch (RuntimeException e) {
             log.error("receipt_extraction_failed spendId={} lastAttempt={}", spendId, lastAttempt, e);
             if (releaseExtraction(spendId, claimToken, lastAttempt ? SpendStatus.FAILED : SpendStatus.PENDING)) {

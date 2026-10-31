@@ -1,5 +1,6 @@
 package com.arielsoto.spendtracker.spend.dto;
 
+import com.arielsoto.spendtracker.spend.FailureReason;
 import com.arielsoto.spendtracker.spend.SpendStatus;
 
 import java.math.BigDecimal;
@@ -17,6 +18,8 @@ public record SpendDetailResponse(
     LocalDateTime createdAt,
     LocalDateTime updatedAt,
     String receiptUrl,
-    SpendStatus status
+    SpendStatus status,
+    // Set only on a FAILED Spend that cannot be retried.
+    FailureReason failureReason
 ) {
 }
