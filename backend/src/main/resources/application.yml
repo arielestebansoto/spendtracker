@@ -15,6 +15,14 @@ server:
       min-spare: 5
       
 spring:
+  servlet:
+    multipart:
+      # Receipt uploads: a larger file is rejected with 413 before reaching ReceiptValidator, which
+      # repeats the 5 MB check. Textract's synchronous API takes up to 10 MB. The request allows
+      # 1 MB of multipart overhead; nginx's client_max_body_size must match (docs/nginx.md).
+      max-file-size: 5MB
+      max-request-size: 6MB
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}

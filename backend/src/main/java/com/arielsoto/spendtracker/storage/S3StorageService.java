@@ -43,14 +43,15 @@ public class S3StorageService implements FileStorageService {
     @Override
     public StoredFile store(
         MultipartFile file,
-        String key
+        String key,
+        String contentType
     ) {
         try {
             s3Client.putObject(
                 PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(key)
-                    .contentType(file.getContentType())
+                    .contentType(contentType)
                     .build(),
                 RequestBody.fromInputStream(
                     file.getInputStream(),
@@ -60,7 +61,7 @@ public class S3StorageService implements FileStorageService {
 
             return new StoredFile(
                 key,
-                file.getContentType(),
+                contentType,
                 file.getSize()
             );
 

@@ -62,7 +62,7 @@ public class ReceiptProcessingService {
      * provisional values and queues it for Extraction. Nothing is created if validation fails.
      */
     public Spend uploadReceipt(UserApp user, MultipartFile file) {
-        ReceiptValidator.validate(file);
+        ReceiptFileType fileType = ReceiptValidator.validate(file);
         aiUsageService.validateAndPickStrategy(user);
         aiUsageService.validateBedrockUsage(user);
 
@@ -77,7 +77,9 @@ public class ReceiptProcessingService {
         spend = spendRepository.save(spend);
 
         try {
-            StoredFile storedFile = storageService.store(user, spend.getId(), file);
+            StoredFile storedFile = storageService.store(
+                user, spend.getId(), file, fileType.extension(), fileType.contentType()
+            );
             spend.setReceiptKey(storedFile.key());
             spend.setReceiptContentType(storedFile.contentType());
             spend = spendRepository.save(spend);
