@@ -44,10 +44,10 @@ public class SecurityAuditLogger {
         );
     }
     
-    public void logout(String user) {
+    public void logout(UUID userId) {
         log.info(
-            "security_event type=LOGOUT user={}",
-            user
+            "security_event type=LOGOUT userId={}",
+            userId
         );
     }
 }
