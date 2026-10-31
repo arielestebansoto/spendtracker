@@ -7,11 +7,14 @@ import com.arielsoto.spendtracker.user.UserApp;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.textract.model.BadDocumentException;
+import software.amazon.awssdk.services.textract.model.UnsupportedDocumentException;
 
 import java.util.UUID;
 
 /**
  * Extraction: reads a Receipt image into raw text. Produces source data only.
+ * Throws {@link UnreadableReceiptException} when Textract finds no text or rejects the file.
  */
 @Service
 @RequiredArgsConstructor
@@ -22,7 +25,7 @@ public class ReceiptExtractionService {
 
     public OcrResult extract(UserApp user, UUID spendId, byte[] imageBytes, String contentType) {
         TextractStrategy strategy = aiUsageService.validateAndPickStrategy(user);
-        OcrResult ocrResult = strategy.extractText(imageBytes, contentType);
+        OcrResult ocrResult = read(strategy, imageBytes, contentType);
         aiUsageService.recordTextractUsage(user, strategy.name());
 
         if (!hasText(ocrResult)) {
@@ -33,7 +36,7 @@ public class ReceiptExtractionService {
                     "receipt_ocr_fallback userId={} spendId={} from={} to={}",
                     user.getId(), spendId, strategy.name(), fallback.name()
                 );
-                OcrResult fallbackResult = fallback.extractText(imageBytes, contentType);
+                OcrResult fallbackResult = read(fallback, imageBytes, contentType);
                 aiUsageService.recordTextractUsage(user, fallback.name());
                 if (hasText(fallbackResult)) {
                     strategy = fallback;
@@ -43,9 +46,7 @@ public class ReceiptExtractionService {
         }
 
         if (!hasText(ocrResult)) {
-            throw new ReceiptProcessingException(
-                "OCR returned empty text — check Textract permissions and image quality"
-            );
+            throw new UnreadableReceiptException("OCR returned empty text");
         }
 
         log.debug(
@@ -63,6 +64,16 @@ public class ReceiptExtractionService {
         );
 
         return ocrResult;
+    }
+
+    // Textract rejects a file it cannot read, such as a multi-page PDF, which the synchronous API does not
+    // take. It does not bill the call. Any other error, like throttling, propagates so the Spend is retried.
+    private OcrResult read(TextractStrategy strategy, byte[] imageBytes, String contentType) {
+        try {
+            return strategy.extractText(imageBytes, contentType);
+        } catch (UnsupportedDocumentException | BadDocumentException e) {
+            throw new UnreadableReceiptException("Textract rejected the receipt: " + e.getMessage(), e);
+        }
     }
 
     private boolean hasText(OcrResult result) {

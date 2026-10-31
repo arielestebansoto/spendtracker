@@ -47,6 +47,7 @@ import com.arielsoto.spendtracker.classifier.ClassifiedSpendResult;
 import com.arielsoto.spendtracker.ocr.OcrResult;
 import com.arielsoto.spendtracker.queue.ReceiptQueuePublisher;
 import com.arielsoto.spendtracker.queue.SpendMessage;
+import com.arielsoto.spendtracker.spend.FailureReason;
 import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
@@ -303,7 +304,7 @@ class ReceiptProcessingServiceTest {
     void extraction_failureBeforeLastAttemptReturnsSpendToPendingSoRedeliveryRetries() {
         Spend spend = spendIn(SpendStatus.PENDING);
         when(extractionService.extract(any(), any(), any(), any()))
-            .thenThrow(new ReceiptProcessingException("OCR returned empty text"));
+            .thenThrow(new ReceiptProcessingException("Cannot read the receipt image"));
 
         assertThrows(ReceiptProcessingException.class, () -> service.processExtraction(spend.getId(), false));
 
@@ -317,7 +318,7 @@ class ReceiptProcessingServiceTest {
     void extraction_failureOnLastAttemptMarksFailedAndDeletesNothing() {
         Spend spend = spendIn(SpendStatus.PENDING);
         when(extractionService.extract(any(), any(), any(), any()))
-            .thenThrow(new ReceiptProcessingException("OCR returned empty text"));
+            .thenThrow(new ReceiptProcessingException("Cannot read the receipt image"));
 
         assertThrows(ReceiptProcessingException.class, () -> service.processExtraction(spend.getId(), true));
 
@@ -327,6 +328,22 @@ class ReceiptProcessingServiceTest {
         verify(storageService, never()).deleteFile(any());
         verify(spendRepository, never()).delete(any(Spend.class));
         verify(spendRepository, never()).deleteById(any());
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void extraction_ofAnUnreadableReceiptMarksFailedWithoutRetry() {
+        Spend spend = spendIn(SpendStatus.PENDING);
+        when(spendRepository.markUnreadable(any(), any(), any())).thenReturn(1);
+        when(extractionService.extract(any(), any(), any(), any()))
+            .thenThrow(new UnreadableReceiptException("OCR returned empty text"));
+
+        service.processExtraction(spend.getId(), false);
+
+        UUID claimToken = claimTokenOf(spend);
+
+        verify(spendRepository).markUnreadable(spend.getId(), claimToken, NOW);
+        verify(spendRepository, never()).releaseExtraction(any(), any(), any(), any());
         verifyNoInteractions(queuePublisher);
     }
 
@@ -359,7 +376,7 @@ class ReceiptProcessingServiceTest {
     void extraction_whenDisplacedAndFailingStopsWithoutRethrowingSoTheCurrentOwnerKeepsTheSpend() {
         Spend spend = spendIn(SpendStatus.PENDING);
         when(extractionService.extract(any(), any(), any(), any()))
-            .thenThrow(new ReceiptProcessingException("OCR returned empty text"));
+            .thenThrow(new ReceiptProcessingException("Cannot read the receipt image"));
         when(spendRepository.releaseExtraction(any(), any(), any(), any())).thenReturn(0);
 
         service.processExtraction(spend.getId(), true);
@@ -671,6 +688,18 @@ class ReceiptProcessingServiceTest {
         assertThrows(SpendNotRetryableException.class, () -> service.retry(user, spend.getId()));
 
         assertEquals(status, spend.getStatus());
+        verify(spendRepository, never()).save(any());
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void retry_rejectsAnUnreadableReceiptWithoutSideEffects() {
+        Spend spend = ownedSpendIn(SpendStatus.FAILED);
+        spend.setFailureReason(FailureReason.UNREADABLE_RECEIPT);
+
+        assertThrows(SpendNotRetryableException.class, () -> service.retry(user, spend.getId()));
+
+        assertEquals(SpendStatus.FAILED, spend.getStatus());
         verify(spendRepository, never()).save(any());
         verifyNoInteractions(queuePublisher);
     }

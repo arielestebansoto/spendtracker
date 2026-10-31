@@ -117,6 +117,29 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	}
 
 	@Test
+	void theCurrentOwnerCanMarkTheSpendUnreadable() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		assertThat(spendRepository.markUnreadable(spend.getId(), SECOND_TOKEN, LocalDateTime.now())).isEqualTo(1);
+
+		Spend unreadable = reload(spend);
+		assertThat(unreadable.getStatus()).isEqualTo(SpendStatus.FAILED);
+		assertThat(unreadable.getFailureReason()).isEqualTo(FailureReason.UNREADABLE_RECEIPT);
+		assertThat(unreadable.getProcessingStage()).isNull();
+	}
+
+	@Test
+	void aDisplacedWorkerCannotMarkTheSpendUnreadable() {
+		Spend spend = spendTakenOverBySecondWorker();
+
+		assertThat(spendRepository.markUnreadable(spend.getId(), FIRST_TOKEN, LocalDateTime.now())).isZero();
+
+		Spend current = reload(spend);
+		assertThat(current.getStatus()).isEqualTo(SpendStatus.PROCESSING);
+		assertThat(current.getFailureReason()).isNull();
+	}
+
+	@Test
 	void theCurrentOwnerCanAdvanceTheStageAndLeavesTheSpendUnclaimed() {
 		Spend spend = spendTakenOverBySecondWorker();
 

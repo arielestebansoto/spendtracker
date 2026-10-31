@@ -19,6 +19,8 @@ type SpendDetail = {
   spendDate: string;
   receiptUrl: string | null;
   status: SpendStatus;
+  // Set only on a FAILED Spend that cannot be retried.
+  failureReason: "UNREADABLE_RECEIPT" | null;
 };
 
 function formatCurrency(amount: number) {
@@ -180,7 +182,17 @@ export default function ViewSpendPage() {
         </div>
       )}
 
-      {spend.status === "FAILED" && (
+      {spend.status === "FAILED" && spend.failureReason === "UNREADABLE_RECEIPT" && (
+        <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
+          <p className="text-sm font-medium text-destructive">We could not read this receipt</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            No text was found in the file, or it has more than one page. Delete this spend from the
+            spends list and upload a clearer photo, or enter the details manually.
+          </p>
+        </div>
+      )}
+
+      {spend.status === "FAILED" && spend.failureReason !== "UNREADABLE_RECEIPT" && (
         <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
           <p className="text-sm font-medium text-destructive">We could not process this receipt</p>
           <p className="mt-1 text-sm text-muted-foreground">

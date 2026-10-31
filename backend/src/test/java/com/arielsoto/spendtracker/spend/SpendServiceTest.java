@@ -134,6 +134,26 @@ class SpendServiceTest {
     }
 
     @Test
+    void spendDetailExposesWhyItFailed() {
+        UUID userId = UUID.randomUUID();
+        Spend spend = Spend.builder()
+            .id(UUID.randomUUID())
+            .category(category())
+            .amount(BigDecimal.ZERO)
+            .spendDate(START)
+            .status(SpendStatus.FAILED)
+            .failureReason(FailureReason.UNREADABLE_RECEIPT)
+            .build();
+        when(spendRepository.findByIdAndUserId(spend.getId(), userId))
+            .thenReturn(Optional.of(spend));
+
+        SpendDetailResponse response =
+            spendService.findByIdAndUserId(spend.getId(), userId);
+
+        assertThat(response.failureReason()).isEqualTo(FailureReason.UNREADABLE_RECEIPT);
+    }
+
+    @Test
     void dashboardMetricsCountOnlyProcessedSpends() {
         UUID userId = UUID.randomUUID();
         when(spendRepository.sumAmountByUserIdAndStatusAndSpendDateBetween(

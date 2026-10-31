@@ -62,6 +62,10 @@ public class Spend {
     @Column(name = "processing_stage", length = 20)
     private ProcessingStage processingStage;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_reason", length = 30)
+    private FailureReason failureReason;
+
     @Column(name = "claim_token")
     private UUID claimToken;
 

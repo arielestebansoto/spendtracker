@@ -109,6 +109,26 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
     );
 
     /**
+     * Ends the Extraction stage of a Spend claimed with {@code claimToken} as FAILED because its
+     * Receipt is unreadable, which rules out a Retry. Returns 0 if another worker has claimed it since.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.status = com.arielsoto.spendtracker.spend.SpendStatus.FAILED,
+            s.failureReason = com.arielsoto.spendtracker.spend.FailureReason.UNREADABLE_RECEIPT,
+            s.processingStage = null,
+            s.statusChangedAt = :now
+        WHERE s.id = :id AND s.claimToken = :claimToken
+    """)
+    int markUnreadable(
+        @Param("id") UUID id,
+        @Param("claimToken") UUID claimToken,
+        @Param("now") LocalDateTime now
+    );
+
+    /**
      * Atomically claims a Spend for the Enrichment stage, full or category-only: PROCESSING in
      * Enrichment, unclaimed or with a claim older than {@code staleBefore} (a worker that died). Stores
      * {@code claimToken}, which fences the stage's later writes ({@link #confirmClaim},
