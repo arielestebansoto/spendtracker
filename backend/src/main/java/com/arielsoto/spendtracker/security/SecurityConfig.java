@@ -9,8 +9,6 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -57,14 +55,10 @@ public class SecurityConfig {
                 )
             )
             
-            .csrf(csrf -> csrf
-                .csrfTokenRepository(
-                    CookieCsrfTokenRepository.withHttpOnlyFalse()
-                )
-                .csrfTokenRequestHandler(
-                    new CsrfTokenRequestAttributeHandler()
-                )
-            )
+            // XSRF-TOKEN cookie readable by the frontend, which sends it back in the X-XSRF-TOKEN
+            // header (compared as is). A token rendered in a response body, such as the one returned
+            // by CsrfController, is XOR-masked against BREACH and must not be used as the header.
+            .csrf(csrf -> csrf.spa())
 
             .cors(Customizer.withDefaults())
 

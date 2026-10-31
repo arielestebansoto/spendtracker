@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { initializeSession } from "@/app/lib/auth";
+import { getCurrentUser } from "@/app/lib/auth";
 import { checkConsentStatus } from "@/app/lib/consent";
 import ConsentModal from "./ConsentModal";
 
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     async function load() {
       try {
-        const currentUser = await initializeSession();
+        const currentUser = await getCurrentUser();
 
         if (cancelled) return;
 
