@@ -11,7 +11,27 @@ export type CreateSpendFromReceiptResponse = {
   status: SpendStatus;
 };
 
-export class ReceiptQuotaError extends Error {}
+// Same limit as the backend (spring.servlet.multipart.max-file-size) and nginx (docs/nginx.md).
+export const MAX_RECEIPT_SIZE = 5 * 1024 * 1024;
+
+export type ReceiptUploadErrorKind =
+  | "invalid_file"
+  | "too_large"
+  | "ai_quota"
+  | "rate_limit_minute"
+  | "rate_limit_day"
+  | "unknown";
+
+export class ReceiptUploadError extends Error {
+  constructor(readonly kind: ReceiptUploadErrorKind) {
+    super(`Receipt upload failed: ${kind}`);
+  }
+}
+
+type ErrorBody = {
+  reason?: string;
+  window?: string;
+};
 
 // Returns right away with a provisional PENDING Spend; the Category is decided later by Enrichment.
 export async function createSpendFromReceipt(
@@ -25,13 +45,34 @@ export async function createSpendFromReceipt(
     body: formData,
   });
 
-  if (response.status === 429) {
-    throw new ReceiptQuotaError("AI quota exceeded");
-  }
-
   if (!response.ok) {
-    throw new Error("Failed to create spend from receipt");
+    throw new ReceiptUploadError(errorKind(response.status, await readErrorBody(response)));
   }
 
   return response.json();
+}
+
+function errorKind(status: number, body: ErrorBody | null): ReceiptUploadErrorKind {
+  switch (status) {
+    case 400:
+      return "invalid_file";
+    case 413:
+      return "too_large";
+    case 429:
+      if (body?.reason === "ai_quota") return "ai_quota";
+      if (body?.reason === "rate_limit" && body.window === "day") return "rate_limit_day";
+      // The backend's per-minute limit, or nginx's per-IP limit (an HTML page, no body to read).
+      return "rate_limit_minute";
+    default:
+      return "unknown";
+  }
+}
+
+// nginx answers 413 and its own 429 with HTML, so the body is not always JSON.
+async function readErrorBody(response: Response): Promise<ErrorBody | null> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
