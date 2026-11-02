@@ -181,6 +181,32 @@ public interface SpendRepository extends JpaRepository<Spend, UUID>, JpaSpecific
 
     List<Spend> findAllByStatusInAndStatusChangedAtBefore(Collection<SpendStatus> statuses, LocalDateTime cutoff);
 
+    /**
+     * Marks a Spend FAILED if it is still PENDING or PROCESSING with no status change since
+     * {@code cutoff}. The condition is checked when writing, so a Spend a worker finished or moved on
+     * since it was found is left alone. Clearing the claim token fences a worker that is still running:
+     * its later writes ({@link #advanceToEnrichment}, {@link #confirmClaim}, ...) change nothing.
+     * Returns 1 if the Spend was failed, 0 otherwise.
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+        UPDATE Spend s
+        SET s.status = com.arielsoto.spendtracker.spend.SpendStatus.FAILED,
+            s.processingStage = null,
+            s.claimToken = null,
+            s.statusChangedAt = :now
+        WHERE s.id = :id
+        AND s.status IN (com.arielsoto.spendtracker.spend.SpendStatus.PENDING,
+                         com.arielsoto.spendtracker.spend.SpendStatus.PROCESSING)
+        AND s.statusChangedAt < :cutoff
+    """)
+    int failIfStuck(
+        @Param("id") UUID id,
+        @Param("cutoff") LocalDateTime cutoff,
+        @Param("now") LocalDateTime now
+    );
+
     boolean existsByCategoryId(UUID categoryId);
 
     List<Spend> findAllByUserIdAndSpendDateBetween(
