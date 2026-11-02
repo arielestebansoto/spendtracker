@@ -3,7 +3,11 @@ package com.arielsoto.spendtracker.receipt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -30,7 +34,7 @@ import com.arielsoto.spendtracker.spend.SpendStatus;
 @ExtendWith(MockitoExtension.class)
 class StuckSpendCleanupServiceTest {
 
-    private static final Duration THRESHOLD = Duration.ofMinutes(15);
+    private static final Duration THRESHOLD = Duration.ofMinutes(5);
     private static final ZoneId ZONE = ZoneId.of("UTC");
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 1, 10, 12, 0);
 
@@ -56,6 +60,21 @@ class StuckSpendCleanupServiceTest {
                     .filter(spend -> spend.getStatusChangedAt().isBefore(cutoff))
                     .toList();
             });
+
+        // Fakes the conditional update on the stored Spends, so the tests see its effect.
+        lenient().when(spendRepository.failIfStuck(any(), any(), any()))
+            .thenAnswer(call -> {
+                UUID id = call.getArgument(0);
+                LocalDateTime cutoff = call.getArgument(1);
+                Spend spend = storedSpends.stream().filter(s -> s.getId().equals(id)).findFirst().orElseThrow();
+                boolean inProgress = spend.getStatus() == SpendStatus.PENDING || spend.getStatus() == SpendStatus.PROCESSING;
+                if (!inProgress || !spend.getStatusChangedAt().isBefore(cutoff)) {
+                    return 0;
+                }
+                spend.setStatus(SpendStatus.FAILED);
+                spend.setClaimToken(null);
+                return 1;
+            });
     }
 
     private Spend spendIn(SpendStatus status, Duration age) {
@@ -67,7 +86,7 @@ class StuckSpendCleanupServiceTest {
 
     @Test
     void failsPendingAndProcessingSpendsPastTheThreshold() {
-        Spend pending = spendIn(SpendStatus.PENDING, Duration.ofMinutes(16));
+        Spend pending = spendIn(SpendStatus.PENDING, Duration.ofMinutes(6));
         Spend processing = spendIn(SpendStatus.PROCESSING, Duration.ofHours(2));
 
         service.failStuckSpends();
@@ -76,27 +95,39 @@ class StuckSpendCleanupServiceTest {
         assertEquals(SpendStatus.FAILED, processing.getStatus());
     }
 
+    @Test
+    void failsEachSpendWithTheCutoffAndTheCurrentTime() {
+        Spend pending = spendIn(SpendStatus.PENDING, Duration.ofMinutes(6));
+
+        service.failStuckSpends();
+
+        verify(spendRepository).failIfStuck(pending.getId(), NOW.minus(THRESHOLD), NOW);
+    }
+
     @ParameterizedTest
     @EnumSource(ProcessingStage.class)
     void failsAStuckProcessingSpendInAnyStageAndClearsItsStage(ProcessingStage stage) {
         Spend processing = spendIn(SpendStatus.PROCESSING, Duration.ofHours(2));
         processing.setProcessingStage(stage);
+        processing.setClaimToken(UUID.randomUUID());
 
         service.failStuckSpends();
 
         assertEquals(SpendStatus.FAILED, processing.getStatus());
         assertNull(processing.getProcessingStage());
+        assertNull(processing.getClaimToken());
     }
 
     @Test
     void leavesSpendsWithinTheThresholdUntouched() {
-        Spend pending = spendIn(SpendStatus.PENDING, Duration.ofMinutes(14));
+        Spend pending = spendIn(SpendStatus.PENDING, Duration.ofMinutes(4));
         Spend processing = spendIn(SpendStatus.PROCESSING, Duration.ofMinutes(1));
 
         service.failStuckSpends();
 
         assertEquals(SpendStatus.PENDING, pending.getStatus());
         assertEquals(SpendStatus.PROCESSING, processing.getStatus());
+        verify(spendRepository, never()).failIfStuck(any(), any(), any());
     }
 
     @Test
@@ -109,5 +140,18 @@ class StuckSpendCleanupServiceTest {
         assertEquals(SpendStatus.PROCESSED, processed.getStatus());
         assertEquals(SpendStatus.FAILED, failed.getStatus());
         assertEquals(NOW.minusDays(30), failed.getStatusChangedAt());
+    }
+
+    @Test
+    void keepsGoingWhenAWorkerFinishedASpendAfterItWasFound() {
+        Spend finishedMeanwhile = spendIn(SpendStatus.PROCESSING, Duration.ofMinutes(10));
+        Spend stuck = spendIn(SpendStatus.PENDING, Duration.ofMinutes(10));
+        // The conditional update finds the Spend already PROCESSED and changes nothing.
+        doReturn(0).when(spendRepository).failIfStuck(eq(finishedMeanwhile.getId()), any(), any());
+
+        service.failStuckSpends();
+
+        assertEquals(SpendStatus.PROCESSING, finishedMeanwhile.getStatus());
+        assertEquals(SpendStatus.FAILED, stuck.getStatus());
     }
 }

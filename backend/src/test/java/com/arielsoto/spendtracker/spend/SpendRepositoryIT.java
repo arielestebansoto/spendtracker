@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpendRepositoryIT extends PostgresIntegrationTest {
 
 	private static final Duration LEASE = Duration.ofSeconds(60);
+	private static final Duration STUCK_THRESHOLD = Duration.ofMinutes(5);
 	private static final UUID FIRST_TOKEN = UUID.randomUUID();
 	private static final UUID SECOND_TOKEN = UUID.randomUUID();
 
@@ -148,6 +149,56 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 		Spend advanced = reload(spend);
 		assertThat(advanced.getProcessingStage()).isEqualTo(ProcessingStage.ENRICHMENT);
 		assertThat(advanced.getClaimToken()).isNull();
+	}
+
+	@Test
+	void failIfStuckFailsAStalePendingSpend() {
+		Spend spend = saveSpend(SpendStatus.PENDING, null);
+		backdateStatusChange(spend, STUCK_THRESHOLD.plusMinutes(1));
+
+		assertThat(failIfStuck(spend)).isEqualTo(1);
+
+		assertThat(reload(spend).getStatus()).isEqualTo(SpendStatus.FAILED);
+	}
+
+	@Test
+	void failIfStuckFailsAStaleClaimedSpendAndFencesItsWorker() {
+		Spend spend = saveSpend(SpendStatus.PENDING, null);
+		claim(spend.getId(), FIRST_TOKEN);
+		backdateStatusChange(spend, STUCK_THRESHOLD.plusMinutes(1));
+
+		assertThat(failIfStuck(spend)).isEqualTo(1);
+
+		Spend failed = reload(spend);
+		assertThat(failed.getStatus()).isEqualTo(SpendStatus.FAILED);
+		assertThat(failed.getProcessingStage()).isNull();
+		assertThat(failed.getClaimToken()).isNull();
+		assertThat(spendRepository.advanceToEnrichment(spend.getId(), FIRST_TOKEN, LocalDateTime.now())).isZero();
+		assertThat(reload(spend).getProcessingStage()).isNull();
+	}
+
+	@Test
+	void failIfStuckLeavesARecentSpendToItsWorker() {
+		Spend spend = saveSpend(SpendStatus.PROCESSING, ProcessingStage.ENRICHMENT);
+		backdateStatusChange(spend, STUCK_THRESHOLD.minusMinutes(1));
+
+		assertThat(failIfStuck(spend)).isZero();
+
+		assertThat(reload(spend).getStatus()).isEqualTo(SpendStatus.PROCESSING);
+	}
+
+	@Test
+	void failIfStuckLeavesFinishedSpendsUntouched() {
+		Spend processed = saveSpend(SpendStatus.PROCESSED, null);
+		Spend failed = saveSpend(SpendStatus.FAILED, null);
+		backdateStatusChange(processed, Duration.ofDays(1));
+		backdateStatusChange(failed, Duration.ofDays(1));
+
+		assertThat(failIfStuck(processed)).isZero();
+		assertThat(failIfStuck(failed)).isZero();
+
+		assertThat(reload(processed).getStatus()).isEqualTo(SpendStatus.PROCESSED);
+		assertThat(reload(failed).getStatusChangedAt()).isBefore(LocalDateTime.now().minusHours(1));
 	}
 
 	@Test
@@ -328,6 +379,11 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 	private int claimForEnrichment(UUID id, UUID claimToken) {
 		LocalDateTime now = LocalDateTime.now();
 		return spendRepository.claimForEnrichment(id, claimToken, now, now.minus(LEASE));
+	}
+
+	private int failIfStuck(Spend spend) {
+		LocalDateTime now = LocalDateTime.now();
+		return spendRepository.failIfStuck(spend.getId(), now.minus(STUCK_THRESHOLD), now);
 	}
 
 	private void backdateStatusChange(Spend spend, Duration age) {

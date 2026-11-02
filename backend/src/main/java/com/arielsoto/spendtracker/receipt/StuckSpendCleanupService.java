@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -16,8 +15,14 @@ import java.util.List;
 
 /**
  * Safety net for the asynchronous pipeline: a Spend that stays PENDING or PROCESSING for longer
- * than the threshold (for example the backend crashed between saving it and queuing it) is marked
- * FAILED, so the user can retry or delete it. Nothing is deleted.
+ * than the threshold (for example the backend crashed between saving it and queuing it, or its
+ * message reached the DLQ without the worker seeing the last attempt) is marked FAILED, so the user
+ * can retry or delete it. Nothing is deleted.
+ *
+ * Every claim, release and stage change refreshes statusChangedAt, so a live Spend is never older
+ * than about one visibility timeout plus one stage. Each Spend is failed with a conditional update,
+ * so one that a worker finished in the meantime is not overwritten, and a worker still running on it
+ * loses its claim and writes nothing more.
  */
 @Service
 @Slf4j
@@ -39,16 +44,16 @@ public class StuckSpendCleanupService {
     }
 
     @Scheduled(fixedDelayString = "${app.stuck-spend-cleanup.interval}")
-    @Transactional
     public void failStuckSpends() {
-        LocalDateTime cutoff = LocalDateTime.now(clock).minus(threshold);
-        List<Spend> stuckSpends = spendRepository.findAllByStatusInAndStatusChangedAtBefore(IN_PROGRESS, cutoff);
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime cutoff = now.minus(threshold);
+        List<Spend> candidates = spendRepository.findAllByStatusInAndStatusChangedAtBefore(IN_PROGRESS, cutoff);
 
-        for (Spend spend : stuckSpends) {
-            log.warn("stuck_spend_failed spendId={} status={} statusChangedAt={}",
-                spend.getId(), spend.getStatus(), spend.getStatusChangedAt());
-            spend.setStatus(SpendStatus.FAILED);
+        for (Spend spend : candidates) {
+            if (spendRepository.failIfStuck(spend.getId(), cutoff, now) == 1) {
+                log.warn("stuck_spend_failed spendId={} status={} statusChangedAt={}",
+                    spend.getId(), spend.getStatus(), spend.getStatusChangedAt());
+            }
         }
-        spendRepository.saveAll(stuckSpends);
     }
 }
