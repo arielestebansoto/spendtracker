@@ -99,7 +99,7 @@ export default function NewSpendPage() {
 
     try {
       const created = await createSpendFromReceipt(file);
-      router.push(`/spends/${created.id}`);
+      router.push(`/spends/${created.id}?created=receipt`);
     } catch (error) {
       setStatus("error");
       setReceiptError(
@@ -130,7 +130,7 @@ export default function NewSpendPage() {
       if (!response.ok) throw new Error("Failed to create spend");
 
       const created = await response.json();
-      router.push(`/spends/${created.id}`);
+      router.push(`/spends/${created.id}?created=manual`);
     } catch {
       setStatus("error");
       setSubmitError("Could not create spend. Please review the data and try again.");

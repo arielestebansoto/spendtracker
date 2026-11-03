@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
 import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
+import Toast from "@/app/components/Toast";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
 import { retrySpend } from "@/app/lib/retrySpend";
@@ -41,6 +42,22 @@ export default function ViewSpendPage() {
   const router = useRouter();
   const params = useParams();
   const spendId = params.id as string;
+  const searchParams = useSearchParams();
+
+  // The new spend page adds ?created=receipt|manual so this page can confirm the create.
+  const [createdMessage, setCreatedMessage] = useState<string | null>(() => {
+    const created = searchParams.get("created");
+    if (created === "receipt") return "Receipt uploaded. We are reading it now.";
+    if (created === "manual") return "Spend created.";
+    return null;
+  });
+  // Stable, so the polling re-renders do not restart the toast timer.
+  const dismissCreatedToast = useCallback(() => setCreatedMessage(null), []);
+
+  // Drop the flag so a reload does not show the toast again.
+  useEffect(() => {
+    if (searchParams.has("created")) router.replace(`/spends/${spendId}`);
+  }, [searchParams, router, spendId]);
 
   const [spend, setSpend] = useState<SpendDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,6 +86,8 @@ export default function ViewSpendPage() {
   // Each poll bumps this counter, which re-runs the fetch below.
   const [pollCount, setPollCount] = useState(0);
   const receiptRequestedRef = useRef(false);
+  // "Try again" on the error state bumps this counter to fetch the Spend again.
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -90,7 +109,7 @@ export default function ViewSpendPage() {
       }
     }
     if (user) load();
-  }, [user, spendId, fetchReceipt, pollCount]);
+  }, [user, spendId, fetchReceipt, pollCount, retryCount]);
 
   // Reclassify only recalculates the Category. The Spend comes back in progress, which locks it
   // and starts the polling below until it is PROCESSED again.
@@ -130,11 +149,24 @@ export default function ViewSpendPage() {
   }
 
   if (authLoading || !user) return <LoadingState />;
-  if (error) return <ErrorState message="Could not load spend." onRetry={() => router.refresh()} />;
+  if (error) {
+    return (
+      <ErrorState
+        message="Could not load spend."
+        onRetry={() => {
+          setError(false);
+          setIsLoading(true);
+          setRetryCount((count) => count + 1);
+        }}
+      />
+    );
+  }
   if (isLoading || !spend) return <LoadingState />;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      {createdMessage && <Toast message={createdMessage} onDismiss={dismissCreatedToast} />}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Spend detail</h1>

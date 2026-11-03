@@ -21,6 +21,8 @@ export default function DashboardPage() {
   const { user, isLoading: authLoading } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  // "Try again" on the error state bumps this counter to fetch the summary again.
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -41,10 +43,20 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, retryCount]);
 
   if (authLoading || !user) return <LoadingState />;
-  if (status === "error") return <ErrorState onRetry={() => setStatus("loading")} />;
+  if (status === "error") {
+    return (
+      <ErrorState
+        message="Could not load the dashboard."
+        onRetry={() => {
+          setStatus("loading");
+          setRetryCount((count) => count + 1);
+        }}
+      />
+    );
+  }
   if (status === "loading" || !summary) return <LoadingState />;
 
   const hasSpends = summary.recentSpends.length > 0;
