@@ -14,13 +14,14 @@ export default function SettingsPage() {
   const router = useRouter();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
+  const [aiUsageError, setAiUsageError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
 
     fetchAiUsage()
       .then(setAiUsage)
-      .catch(console.error);
+      .catch(() => setAiUsageError(true));
   }, [user]);
 
   async function handleLogout() {
@@ -64,6 +65,15 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {aiUsageError && (
+          <section className="rounded-xl border border-border p-6">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+              AI usage this month
+            </h2>
+            <p className="text-sm text-destructive">Could not load your AI usage. Reload the page to try again.</p>
+          </section>
+        )}
 
         {aiUsage && (
           <section className="rounded-xl border border-border p-6">

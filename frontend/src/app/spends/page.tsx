@@ -103,6 +103,8 @@ export default function SpendsPage() {
   // Each poll bumps this counter, which re-runs the fetch below with the same filters.
   const [pollCount, setPollCount] = useState(0);
   const isPollRef = useRef(false);
+  // "Try again" on the error state bumps this counter to fetch the same page again.
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -140,7 +142,7 @@ export default function SpendsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, currentPage, applied, pollCount]);
+  }, [user, currentPage, applied, pollCount, retryCount]);
 
   // Poll only while at least one Spend on screen is still being processed.
   const hasInProgress = spends.some((spend) => isInProgress(spend.status));
@@ -188,6 +190,17 @@ export default function SpendsPage() {
     setFiltersOpen(false);
   }
 
+  function retryLoad() {
+    setStatus("loading");
+    setRetryCount((count) => count + 1);
+  }
+
+  // The list is replaced by the loading state until the new page arrives.
+  function goToPage(page: number) {
+    setStatus("loading");
+    setCurrentPage(page);
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -225,7 +238,7 @@ export default function SpendsPage() {
   }
 
   if (authLoading || !user) return <LoadingState />;
-  if (status === "error") return <ErrorState onRetry={() => setStatus("loading")} />;
+  if (status === "error") return <ErrorState message="Could not load spends." onRetry={retryLoad} />;
 
   return (
     <div className="max-w-5xl mx-auto px-4 pt-8 pb-24 md:pb-8">
@@ -468,7 +481,7 @@ export default function SpendsPage() {
             <div className="flex justify-center items-center gap-4 mt-6">
               <button
                 disabled={currentPage === 0}
-                onClick={() => setCurrentPage((p) => p - 1)}
+                onClick={() => goToPage(currentPage - 1)}
                 className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50 hover:bg-accent transition"
               >
                 Previous
@@ -478,7 +491,7 @@ export default function SpendsPage() {
               </span>
               <button
                 disabled={currentPage >= totalPages - 1}
-                onClick={() => setCurrentPage((p) => p + 1)}
+                onClick={() => goToPage(currentPage + 1)}
                 className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50 hover:bg-accent transition"
               >
                 Next
