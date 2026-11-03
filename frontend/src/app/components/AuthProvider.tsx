@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { getCurrentUser } from "@/app/lib/auth";
 import { checkConsentStatus } from "@/app/lib/consent";
 import ConsentModal from "./ConsentModal";
+import ErrorState from "./ErrorState";
 
 type User = {
   id: string;
@@ -30,6 +31,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsConsent, setNeedsConsent] = useState(false);
+  // Set when the session check fails without a response (backend down, no connection).
+  // A 401 is not an error: getCurrentUser() returns null and the user goes to the login page.
+  const [error, setError] = useState(false);
+  // "Try again" bumps this counter to check the session again.
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const currentUser = await getCurrentUser();
 
         if (cancelled) return;
+        setError(false);
 
         if (!currentUser) {
           setUser(null);
@@ -62,6 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setNeedsConsent(true);
           }
         }
+      } catch {
+        if (!cancelled) setError(true);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -72,15 +81,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [pathname, router]);
+  }, [pathname, router, retryCount]);
 
   const handleConsentGiven = useCallback(() => {
     setNeedsConsent(false);
   }, []);
 
+  function retry() {
+    setError(false);
+    setIsLoading(true);
+    setRetryCount((count) => count + 1);
+  }
+
+  // Public routes work without a session, so they render as usual.
+  const showError = error && !PUBLIC_ROUTES.includes(pathname);
+
   return (
     <AuthContext.Provider value={{ user, isLoading }}>
-      {children}
+      {showError ? (
+        <ErrorState message="Could not reach the server." onRetry={retry} />
+      ) : (
+        children
+      )}
       {needsConsent && <ConsentModal onConsentGiven={handleConsentGiven} />}
     </AuthContext.Provider>
   );
