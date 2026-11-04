@@ -2,12 +2,32 @@ services:
   backend:
     image: ${BACKEND_IMAGE}:${IMAGE_TAG}
 
+    # Ships stdout to CloudWatch Logs (docs/observability.md). The log group must exist:
+    # a missing or not writable group makes the container fail to start.
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: /spendtracker/prod/backend
+        awslogs-create-group: "false"
+        mode: non-blocking
+        max-buffer-size: 4m
+
     networks:
       - app
       - web
 
   frontend:
     image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: /spendtracker/prod/frontend
+        awslogs-create-group: "false"
+        mode: non-blocking
+        max-buffer-size: 4m
 
     networks:
       - web
