@@ -22,7 +22,7 @@ Dev and prod live in the same AWS account and region. Only the resource ARNs ins
 
 | Principal | Used by | Policies |
 | --- | --- | --- |
-| Role `prod-spendtracker-ec2`, attached to the EC2 instance | prod backend | `prod-spendtracker-s3`, `prod-spendtracker-sqs`, `spendtracker-ai`, `AmazonSSMManagedInstanceCore` (AWS managed) |
+| Role `prod-spendtracker-ec2`, attached to the EC2 instance | prod backend, Docker `awslogs` driver | `prod-spendtracker-s3`, `prod-spendtracker-sqs`, `prod-spendtracker-logs`, `spendtracker-ai`, `AmazonSSMManagedInstanceCore` (AWS managed) |
 | User `dev-spendtracker`, access key in your local `.env` | local backend | `dev-spendtracker-s3`, `dev-spendtracker-sqs`, `spendtracker-ai` |
 
 Your own console user is separate and its keys never go into any `.env`. The `dev-spendtracker` key must not be able to touch prod resources: if a policy attached to it names a `prod-` bucket or queue, that is a mistake.
@@ -59,6 +59,32 @@ The receipts bucket of that environment. `ListBucket` is used when deleting all 
 
 The two work queues of that environment. The JSON and the reason for each permission are in `docs/sqs-provisioning.md` (IAM permissions).
 
+### `prod-spendtracker-logs`
+
+Prod only. Lets the Docker `awslogs` logging driver, which runs on the host and uses the instance role, write the containers' logs to their CloudWatch log groups (`docs/observability.md`). The groups are created by hand, so `logs:CreateLogGroup` is not granted. The console's policy editor rejects log group ARNs with a wildcard in the name (`log-group:/spendtracker/prod/*` or `.../*:*`), so the policy uses the log stream form only.
+
+To check it from the EC2 host before deploying (the role must be attached and the log groups created):
+
+```bash
+docker run --rm --log-driver awslogs --log-opt awslogs-region=<region> \
+  --log-opt awslogs-group=/spendtracker/prod/backend alpine echo hello
+```
+
+It must print `hello` without errors, and a new stream with that line must appear in the group.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:<region>:<account-id>:log-group:/spendtracker/prod/*:log-stream:*"
+    }
+  ]
+}
+```
+
 ### `spendtracker-ai`
 
 Shared by both environments: Textract and Bedrock have no per-environment resources. Textract does not support resource-level permissions, hence `*`.
@@ -85,7 +111,7 @@ Shared by both environments: Textract and Bedrock have no per-environment resour
 
 ## Prod: instance role
 
-1. **IAM > Roles > Create role**, trusted entity **AWS service > EC2**. Attach `prod-spendtracker-s3`, `prod-spendtracker-sqs`, `spendtracker-ai` and `AmazonSSMManagedInstanceCore`. Name it `prod-spendtracker-ec2`. If the instance already has a role (for example one created for SSM), attach the policies to that role instead of creating another.
+1. **IAM > Roles > Create role**, trusted entity **AWS service > EC2**. Attach `prod-spendtracker-s3`, `prod-spendtracker-sqs`, `prod-spendtracker-logs`, `spendtracker-ai` and `AmazonSSMManagedInstanceCore`. Name it `prod-spendtracker-ec2`. If the instance already has a role (for example one created for SSM), attach the policies to that role instead of creating another.
 2. **EC2 > the instance > Actions > Security > Modify IAM role**, select the role.
 3. **EC2 > the instance > Actions > Instance settings > Modify instance metadata options**: **Metadata response hop limit** must be **2**. The backend runs in a container, which is one extra network hop; with 1 the container cannot reach IMDS and every AWS call fails with "Unable to load credentials".
 4. The server's `.env` must have no `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
