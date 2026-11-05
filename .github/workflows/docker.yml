@@ -93,9 +93,10 @@ jobs:
       - name: Deploy
         working-directory: /opt/spendtracker
         run: |
-          # The EC2 disk is small: remove images, stopped containers and build cache that no running
-          # container uses before pulling the new images. Volumes are never touched.
-          docker system prune -a -f
+          # The EC2 disk is small: remove the images no container uses before pulling the new ones.
+          # Never `docker system prune`: it also removes the external `web` network and the nginx
+          # container when they are stopped.
+          docker image prune -a -f
           df -h /
           docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
           docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
