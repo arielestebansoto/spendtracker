@@ -68,6 +68,7 @@ cd frontend && pnpm build
 - Production observability (CloudWatch Logs via the Docker `awslogs` driver, SNS alerts topic, DLQ alarms), created by hand in the AWS console: `docs/observability.md`. The log groups must exist before deploying, or the containers fail to start
 - Production RDS is private; connecting a client (DBeaver) through the EC2 instance via SSM port forwarding or an SSH tunnel, and the security group rules: `docs/production-database-access.md`
 - Login is limited to the emails in the `allowed_emails` table (managed by hand with SQL), toggled by `ACCESS_ALLOWLIST_ENABLED` (on by default, off in `dev`): `docs/access-allowlist.md`
+- OAuth apps (Google, GitHub) are registered by hand in each provider's console; GitHub needs one OAuth App per environment, since it accepts a single callback URL: `docs/oauth-apps.md`
 - Required env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OAUTH2_*` keys
 
 ## Coding Principles
