@@ -11,6 +11,10 @@ on:
   push:
     branches:
       - main
+    # Documentation does not change the images: skip the build and deploy when a push only touches it.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 permissions:
   contents: read
