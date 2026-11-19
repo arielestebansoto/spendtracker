@@ -21,8 +21,13 @@ permissions:
   packages: write
 
 jobs:
-  build:
+  # The same checks a pull request must pass, run again here so nothing deploys untested:
+  # not a direct push, a ruleset bypass, nor a manual `workflow_dispatch` run.
+  checks:
+    uses: ./.github/workflows/ci.yml
 
+  build:
+    needs: checks
     runs-on: ubuntu-latest
 
     steps:

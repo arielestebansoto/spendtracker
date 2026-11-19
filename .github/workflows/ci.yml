@@ -1,0 +1,67 @@
+name: CI
+
+# Runs on its own on every pull request, and is called by `docker.yml` before every build and deploy.
+# No `paths:` filters: a required check whose workflow does not run stays pending and blocks the merge.
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # The `main` ruleset requires these checks by their `name:` (docs/branch-protection.md).
+  # Renaming one blocks every pull request until the ruleset is updated to the new name.
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # ubuntu-latest has Docker, so the Testcontainers tests run instead of being skipped.
+      - name: Run tests
+        working-directory: backend
+        run: ./gradlew test --no-daemon
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same Node version as frontend/Dockerfile.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Corepack installs the pnpm version pinned in package.json's `packageManager`, as the Dockerfile does.
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
