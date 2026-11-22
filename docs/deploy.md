@@ -34,7 +34,15 @@ Running the workflow by hand (Actions > Build & Push Docker Images > Run workflo
 
 ## Rollback
 
-1. Find the SHA of a previous deploy: the commit of a successful run in Actions > Build & Push Docker Images.
+1. Find the SHA of a previous deploy. The successful push runs of the workflow are the deploys, newest first. The first line is the running version unless a rollback ran after it: `deploy.env` on the host is the source of truth.
+
+   ```bash
+   gh run list --workflow docker.yml --event push --status success --limit 10 \
+     --json headSha,createdAt,displayTitle \
+     -q '.[]|"\(.headSha)  \(.createdAt[:10])  \(.displayTitle)"'
+   ```
+
+   In the browser: Actions > Build & Push Docker Images, filtered by event `push` and status `success`. Only push runs: a manual run is listed with the commit `main` pointed to when it was started, not the SHA it deployed.
 2. Actions > Build & Push Docker Images > Run workflow, on `main`, with that full 40-character SHA in `sha`.
 
 The run skips checks and build, checks out that commit's Compose files, pulls its images from GHCR and deploys them as above.
