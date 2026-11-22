@@ -6,6 +6,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import com.arielsoto.spendtracker.spend.Spend;
+import com.arielsoto.spendtracker.spend.SpendNotFoundException;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
 import com.arielsoto.spendtracker.user.UserApp;
@@ -25,9 +26,7 @@ public class ReceiptService {
     ) {
         Spend spend = spendRepository
             .findByIdAndUserId(spendId, user.getId())
-            .orElseThrow(() -> new RuntimeException(
-                "Spend not found"
-            ));
+            .orElseThrow(SpendNotFoundException::new);
 
         if (spend.getReceiptKey() == null) {
             throw new RuntimeException("No receipt found");
@@ -44,9 +43,7 @@ public class ReceiptService {
     ) {
         Spend spend = spendRepository
             .findByIdAndUserId(spendId, user.getId())
-            .orElseThrow(() -> new RuntimeException(
-                "Spend not found"
-            ));
+            .orElseThrow(SpendNotFoundException::new);
 
         return spend.getReceiptContentType();
     }

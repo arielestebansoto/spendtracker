@@ -28,6 +28,7 @@ export class ReceiptUploadError extends Error {
   }
 }
 
+// The extension properties of the backend's Problem Detail (RFC 9457) for a rejected upload.
 type ErrorBody = {
   reason?: string;
   window?: string;

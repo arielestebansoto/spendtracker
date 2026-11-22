@@ -14,10 +14,11 @@ export type RulesListResponse = {
   maxRules: number;
 };
 
+// Backend errors are RFC 9457 Problem Details; `detail` is the message to show.
 async function readError(response: Response, fallback: string) {
   try {
     const body = await response.json();
-    if (body && typeof body.error === "string") return body.error;
+    if (body && typeof body.detail === "string") return body.detail;
   } catch {
     // ignore non-JSON error bodies
   }

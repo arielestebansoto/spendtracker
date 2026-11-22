@@ -21,7 +21,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +50,7 @@ import com.arielsoto.spendtracker.spend.FailureReason;
 import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
+import com.arielsoto.spendtracker.spend.SpendNotFoundException;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.spend.SpendStatus;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
@@ -709,7 +709,7 @@ class ReceiptProcessingServiceTest {
         UUID spendId = UUID.randomUUID();
         when(spendRepository.findByIdAndUserId(spendId, user.getId())).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> service.retry(user, spendId));
+        assertThrows(SpendNotFoundException.class, () -> service.retry(user, spendId));
 
         verifyNoInteractions(queuePublisher);
     }

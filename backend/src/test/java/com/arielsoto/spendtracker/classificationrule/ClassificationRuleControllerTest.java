@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -27,6 +28,7 @@ import com.arielsoto.spendtracker.classificationrule.dto.RuleResponse;
 import com.arielsoto.spendtracker.classificationrule.dto.RulesListResponse;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.user.UserApp;
+import com.arielsoto.spendtracker.web.ApiExceptionHandler;
 
 @ExtendWith(MockitoExtension.class)
 class ClassificationRuleControllerTest {
@@ -45,7 +47,9 @@ class ClassificationRuleControllerTest {
     void setUp() {
         ClassificationRuleController controller =
             new ClassificationRuleController(ruleService, authenticatedUserService);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new ApiExceptionHandler())
+            .build();
         when(authenticatedUserService.getCurrentUser(any()))
             .thenReturn(UserApp.builder().id(userId).name("Test User").build());
     }
@@ -89,7 +93,9 @@ class ClassificationRuleControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"condition\":\"electricity bill\",\"categoryId\":\""
                     + UUID.randomUUID() + "\"}"))
-            .andExpect(status().isConflict());
+            .andExpect(status().isConflict())
+            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.detail").value("limit reached"));
     }
 
     @Test
@@ -101,7 +107,8 @@ class ClassificationRuleControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"condition\":\"electricity bill\",\"categoryId\":\""
                     + UUID.randomUUID() + "\"}"))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.detail").value("bad category"));
     }
 
     @Test
@@ -127,7 +134,8 @@ class ClassificationRuleControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"condition\":\"electricity bill\",\"categoryId\":\""
                     + UUID.randomUUID() + "\"}"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.detail").value("not found"));
     }
 
     @Test
@@ -145,6 +153,7 @@ class ClassificationRuleControllerTest {
             .when(ruleService).delete(id, userId);
 
         mockMvc.perform(delete("/api/v1/classification-rules/" + id))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.detail").value("not found"));
     }
 }
