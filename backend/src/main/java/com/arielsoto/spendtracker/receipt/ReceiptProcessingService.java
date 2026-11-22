@@ -13,6 +13,7 @@ import com.arielsoto.spendtracker.spend.FailureReason;
 import com.arielsoto.spendtracker.spend.ProcessingStage;
 import com.arielsoto.spendtracker.spend.Spend;
 import com.arielsoto.spendtracker.spend.SpendItem;
+import com.arielsoto.spendtracker.spend.SpendNotFoundException;
 import com.arielsoto.spendtracker.spend.SpendRepository;
 import com.arielsoto.spendtracker.spend.SpendStatus;
 import com.arielsoto.spendtracker.storage.SpendReceiptStorageService;
@@ -111,7 +112,8 @@ public class ReceiptProcessingService {
      * to FAILED, so it never sits in PENDING without a message, and the error is reported.
      */
     public Spend retry(UserApp user, UUID spendId) {
-        Spend spend = spendRepository.findByIdAndUserId(spendId, user.getId()).orElseThrow();
+        Spend spend = spendRepository.findByIdAndUserId(spendId, user.getId())
+            .orElseThrow(SpendNotFoundException::new);
         if (spend.getStatus() != SpendStatus.FAILED) {
             throw new SpendNotRetryableException(spend.getStatus());
         }

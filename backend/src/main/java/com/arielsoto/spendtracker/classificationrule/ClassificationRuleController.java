@@ -1,10 +1,8 @@
 package com.arielsoto.spendtracker.classificationrule;
 
-import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.arielsoto.spendtracker.classificationrule.dto.CreateRuleRequest;
@@ -40,56 +39,32 @@ public class ClassificationRuleController {
     }
 
     @PostMapping
-    public ResponseEntity<?> create(
+    @ResponseStatus(HttpStatus.CREATED)
+    public RuleResponse create(
         @RequestBody @Valid CreateRuleRequest request,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService.getCurrentUser(authentication);
-
-        try {
-            RuleResponse created = ruleService.create(request, user.getId());
-            return ResponseEntity.status(HttpStatus.CREATED).body(created);
-        } catch (RuleLimitExceededException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", e.getMessage()));
-        } catch (InvalidCategoryException e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("error", e.getMessage()));
-        }
+        return ruleService.create(request, user.getId());
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(
+    public RuleResponse update(
         @PathVariable("id") UUID id,
         @RequestBody @Valid UpdateRuleRequest request,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService.getCurrentUser(authentication);
-
-        try {
-            return ResponseEntity.ok(ruleService.update(id, request, user.getId()));
-        } catch (RuleNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("error", e.getMessage()));
-        } catch (InvalidCategoryException e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("error", e.getMessage()));
-        }
+        return ruleService.update(id, request, user.getId());
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(
         @PathVariable("id") UUID id,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService.getCurrentUser(authentication);
-
-        try {
-            ruleService.delete(id, user.getId());
-            return ResponseEntity.noContent().build();
-        } catch (RuleNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("error", e.getMessage()));
-        }
+        ruleService.delete(id, user.getId());
     }
 }

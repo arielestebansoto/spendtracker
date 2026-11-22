@@ -31,7 +31,6 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
@@ -241,9 +240,7 @@ class SpendServiceTest {
         owns(spend);
 
         assertThatThrownBy(() -> spendService.update(spend.getId(), updateRequest(), spend.getUser().getId()))
-            .isInstanceOf(ResponseStatusException.class)
-            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
-            .isEqualTo(409);
+            .isInstanceOf(SpendInProgressException.class);
         assertThat(spend.getDescription()).isNotEqualTo("Edited");
     }
 
@@ -278,7 +275,7 @@ class SpendServiceTest {
         owns(spend);
 
         assertThatThrownBy(() -> spendService.update(spend.getId(), updateRequest(), spend.getUser().getId()))
-            .isInstanceOf(ResponseStatusException.class);
+            .isInstanceOf(SpendInProgressException.class);
 
         assertThat(spend.getUpdatedAt()).isNull();
     }
@@ -303,16 +300,25 @@ class SpendServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSING", "FAILED"})
-    void reclassifyIsRejectedUnlessTheSpendIsProcessed(SpendStatus status) {
+    @EnumSource(value = SpendStatus.class, names = {"PENDING", "PROCESSING"})
+    void reclassifyIsRejectedWhileTheSpendIsInProgress(SpendStatus status) {
         Spend spend = spendWithStatus("spends/u/s.jpg", status);
         owns(spend);
 
         assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
-            .isInstanceOf(ResponseStatusException.class)
-            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
-            .isEqualTo(409);
+            .isInstanceOf(SpendInProgressException.class);
         assertThat(spend.getStatus()).isEqualTo(status);
+        verifyNoInteractions(queuePublisher);
+    }
+
+    @Test
+    void reclassifyIsRejectedForAFailedSpend() {
+        Spend spend = spendWithStatus("spends/u/s.jpg", SpendStatus.FAILED);
+        owns(spend);
+
+        assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
+            .isInstanceOf(SpendNotReclassifiableException.class);
+        assertThat(spend.getStatus()).isEqualTo(SpendStatus.FAILED);
         verifyNoInteractions(queuePublisher);
     }
 
@@ -322,9 +328,7 @@ class SpendServiceTest {
         owns(spend);
 
         assertThatThrownBy(() -> spendService.reclassify(spend.getId(), spend.getUser().getId()))
-            .isInstanceOf(ResponseStatusException.class)
-            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
-            .isEqualTo(400);
+            .isInstanceOf(SpendWithoutReceiptException.class);
         verifyNoInteractions(queuePublisher);
     }
 
@@ -335,9 +339,7 @@ class SpendServiceTest {
         when(spendRepository.findByIdAndUserId(spendId, userId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> spendService.reclassify(spendId, userId))
-            .isInstanceOf(ResponseStatusException.class)
-            .extracting(e -> ((ResponseStatusException) e).getStatusCode().value())
-            .isEqualTo(404);
+            .isInstanceOf(SpendNotFoundException.class);
     }
 
     @Test

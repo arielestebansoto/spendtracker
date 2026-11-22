@@ -3,8 +3,6 @@ package com.arielsoto.spendtracker.spend;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -13,7 +11,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,11 +24,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.receipt.ReceiptProcessingService;
-import com.arielsoto.spendtracker.receipt.ReceiptUploadRateLimitException;
-import com.arielsoto.spendtracker.receipt.ReceiptValidationException;
-import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendRequest;
 import com.arielsoto.spendtracker.spend.dto.CreateSpendResponse;
@@ -170,27 +163,20 @@ public class SpendController {
     }
 
     @PostMapping("/{id}/retry")
-    public ResponseEntity<?> retry(
+    public CreateSpendResponse retry(
         @PathVariable("id") UUID id,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
 
-        try {
-            Spend spend = receiptProcessingService.retry(user, id);
+        Spend spend = receiptProcessingService.retry(user, id);
 
-            return ResponseEntity.ok(toCreateResponse(spend));
-        } catch (NoSuchElementException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        } catch (SpendNotRetryableException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", e.getMessage()));
-        }
+        return toCreateResponse(spend);
     }
 
     @PostMapping(value = "/from-receipt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> createFromReceipt(
+    public CreateSpendResponse createFromReceipt(
         @RequestParam("receipt") MultipartFile file,
         OAuth2AuthenticationToken authentication
     ) {
@@ -204,37 +190,9 @@ public class SpendController {
             file.getSize()
         );
 
-        try {
-            Spend spend = receiptProcessingService.uploadReceipt(user, file);
+        Spend spend = receiptProcessingService.uploadReceipt(user, file);
 
-            return ResponseEntity.ok(toCreateResponse(spend));
-        } catch (ReceiptValidationException e) {
-            log.warn("api_create_spend_from_receipt_invalid_file userId={} reason={}",
-                user.getId(), e.getMessage());
-            return ResponseEntity.badRequest()
-                .body(Map.of(
-                    "error", e.getMessage(),
-                    "reason", "invalid_file"
-                ));
-        } catch (ReceiptUploadRateLimitException e) {
-            log.warn("api_create_spend_from_receipt_rate_limited userId={} window={}",
-                user.getId(), e.getWindow());
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .body(Map.of(
-                    "error", e.getMessage(),
-                    "reason", "rate_limit",
-                    "window", e.getWindow()
-                ));
-        } catch (AiUsageLimitExceededException e) {
-            log.warn("api_create_spend_from_receipt_ai_limit_exceeded userId={} resourceType={}",
-                user.getId(), e.getResourceType());
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .body(Map.of(
-                    "error", e.getMessage(),
-                    "reason", "ai_quota",
-                    "resourceType", e.getResourceType()
-                ));
-        }
+        return toCreateResponse(spend);
     }
 
     private CreateSpendResponse toCreateResponse(Spend spend) {

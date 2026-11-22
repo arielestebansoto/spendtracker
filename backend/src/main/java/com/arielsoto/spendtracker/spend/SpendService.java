@@ -11,9 +11,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.arielsoto.spendtracker.category.Category;
 import com.arielsoto.spendtracker.category.CategoryRepository;
@@ -46,7 +44,7 @@ public class SpendService {
     ) {
         Spend spend = spendRepository
             .findByIdAndUserId(id, userId)
-            .orElseThrow();
+            .orElseThrow(SpendNotFoundException::new);
 
         return toDetailResponse(spend);
     }
@@ -118,7 +116,7 @@ public class SpendService {
 
         Spend spend = spendRepository
             .findByIdAndUserId(id, userId)
-            .orElseThrow(() -> new RuntimeException("Spend not found"));
+            .orElseThrow(SpendNotFoundException::new);
 
         rejectIfInProgress(spend);
 
@@ -141,18 +139,14 @@ public class SpendService {
     public SpendDetailResponse reclassify(UUID id, UUID userId) {
         Spend spend = spendRepository
             .findByIdAndUserId(id, userId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Spend not found"));
+            .orElseThrow(SpendNotFoundException::new);
 
         if (spend.getReceiptKey() == null) {
-            throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST, "Only a spend with a receipt can be reclassified"
-            );
+            throw new SpendWithoutReceiptException();
         }
         rejectIfInProgress(spend);
         if (spend.getStatus() == SpendStatus.FAILED) {
-            throw new ResponseStatusException(
-                HttpStatus.CONFLICT, "A failed spend must be retried, not reclassified"
-            );
+            throw new SpendNotReclassifiableException();
         }
 
         spend.setStatus(SpendStatus.PROCESSING);
@@ -177,7 +171,7 @@ public class SpendService {
     ) {
         Spend spend = spendRepository
             .findByIdAndUserId(id, userId)
-            .orElseThrow(() -> new RuntimeException("Spend not found"));
+            .orElseThrow(SpendNotFoundException::new);
 
         spendRepository.delete(spend);
 
@@ -257,9 +251,7 @@ public class SpendService {
 
     private void rejectIfInProgress(Spend spend) {
         if (spend.getStatus().isInProgress()) {
-            throw new ResponseStatusException(
-                HttpStatus.CONFLICT, "The spend is being processed and cannot be changed yet"
-            );
+            throw new SpendInProgressException();
         }
     }
 
