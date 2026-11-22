@@ -52,7 +52,7 @@ A Spend that fails ends up `FAILED` and stays visible so the user can retry it. 
 
 A push to `main` triggers the [`docker.yml`](../.github/workflows/docker.yml) workflow:
 
-1. It builds the backend and frontend images and pushes them to GitHub Container Registry.
-2. A self-hosted runner on the EC2 host copies the Compose files to `/opt/spendtracker` and runs `docker compose pull` and `up -d`.
+1. It runs the CI checks, then builds the backend and frontend images and pushes them to GitHub Container Registry, tagged with the commit SHA.
+2. A self-hosted runner on the EC2 host copies the Compose files to `/opt/spendtracker`, pulls the images for that SHA, records it in `deploy.env` and runs `up -d`, failing the job if the backend's healthcheck does not pass.
 
-Pushes that only change documentation skip the build and the deploy. Production settings live in `/opt/spendtracker/.env` on the host. The backend tests run on every pull request ([`backend-tests.yml`](../.github/workflows/backend-tests.yml)).
+A rollback reruns the workflow with a previous SHA and only deploys ([`deploy.md`](deploy.md)). Pushes that only change documentation skip the build and the deploy. Production settings live in `/opt/spendtracker/.env` on the host. The CI checks run on every pull request ([`ci.yml`](../.github/workflows/ci.yml)).

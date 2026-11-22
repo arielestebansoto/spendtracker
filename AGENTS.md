@@ -69,6 +69,7 @@ cd frontend && pnpm build
 - Production RDS is private; connecting a client (DBeaver) through the EC2 instance via SSM port forwarding or an SSH tunnel, and the security group rules: `docs/production-database-access.md`
 - Login is limited to the emails in the `allowed_emails` table (managed by hand with SQL), toggled by `ACCESS_ALLOWLIST_ENABLED` (on by default, off in `dev`): `docs/access-allowlist.md`
 - OAuth apps (Google, GitHub) are registered by hand in each provider's console; GitHub needs one OAuth App per environment, since it accepts a single callback URL: `docs/oauth-apps.md`
+- Each deploy runs the images of one commit: the deploy job records its SHA in `deploy.env` on the host, `IMAGE_TAG` is never in `.env`, and a rollback reruns `docker.yml` with a previous SHA. Manual `docker compose` commands on the host go through `scripts/spendtracker-compose.sh` in the `server` repo: `docs/deploy.md`
 - `main` is protected by a ruleset (created by hand in GitHub) that requires a pull request and the CI checks in `.github/workflows/ci.yml`; `docker.yml` runs the same checks before every deploy. Renaming a CI job breaks the ruleset: `docs/branch-protection.md`
 - Required env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OAUTH2_*` keys
 
