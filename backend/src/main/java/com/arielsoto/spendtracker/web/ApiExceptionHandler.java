@@ -18,7 +18,7 @@ import com.arielsoto.spendtracker.aiusage.AiUsageLimitExceededException;
 import com.arielsoto.spendtracker.classificationrule.InvalidCategoryException;
 import com.arielsoto.spendtracker.classificationrule.RuleLimitExceededException;
 import com.arielsoto.spendtracker.classificationrule.RuleNotFoundException;
-import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
+import com.arielsoto.spendtracker.logging.SecurityMdcFilter;
 import com.arielsoto.spendtracker.receipt.ReceiptUploadRateLimitException;
 import com.arielsoto.spendtracker.receipt.ReceiptValidationException;
 import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;

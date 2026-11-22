@@ -17,7 +17,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
-import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
+import com.arielsoto.spendtracker.logging.SecurityMdcFilter;
 
 @ExtendWith(MockitoExtension.class)
 class LogoutAuditHandlerTest {
