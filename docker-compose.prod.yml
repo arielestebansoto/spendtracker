@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+    image: "${BACKEND_IMAGE}:${IMAGE_TAG:?IMAGE_TAG is not set (pass --env-file deploy.env, see docs/deploy.md)}"
 
     # Ships stdout to CloudWatch Logs (docs/observability.md). The log group must exist:
     # a missing or not writable group makes the container fail to start.
@@ -18,7 +18,7 @@ services:
       - web
 
   frontend:
-    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+    image: "${FRONTEND_IMAGE}:${IMAGE_TAG:?IMAGE_TAG is not set (pass --env-file deploy.env, see docs/deploy.md)}"
 
     logging:
       driver: awslogs

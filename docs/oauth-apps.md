@@ -26,7 +26,7 @@ A Google OAuth client accepts several *Authorized redirect URIs*. Add the callba
 | `OAUTH2_GITHUB_CLIENT_ID`, `OAUTH2_GITHUB_CLIENT_SECRET` | The environment's GitHub OAuth App |
 | `OAUTH2_GOOGLE_CLIENT_ID`, `OAUTH2_GOOGLE_CLIENT_SECRET` | The Google OAuth client |
 
-In dev they go in the repo's `.env`; in prod, in `/opt/spendtracker/.env` on the EC2 host. After changing them in prod, recreate the backend: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend`. `restart` does not reload `.env`.
+In dev they go in the repo's `.env`; in prod, in `/opt/spendtracker/.env` on the EC2 host. After changing them in prod, recreate the backend: `scripts/spendtracker-compose.sh up -d backend` from the `server` repo ([`deploy.md`](deploy.md#manual-commands-on-the-host)). `restart` does not reload `.env`.
 
 ## GitHub users with a private email
 

@@ -7,7 +7,12 @@ env:
 
 on:
   workflow_dispatch:
-  
+    inputs:
+      sha:
+        description: "Rollback: full commit SHA of a previous deploy. Deploys its images without checks or build. Leave empty to build and deploy this branch."
+        required: false
+        default: ""
+
   push:
     branches:
       - main
@@ -23,10 +28,13 @@ permissions:
 jobs:
   # The same checks a pull request must pass, run again here so nothing deploys untested:
   # not a direct push, a ruleset bypass, nor a manual `workflow_dispatch` run.
+  # A rollback (`sha` input) skips checks and build: that commit's images are already in GHCR.
   checks:
+    if: ${{ !inputs.sha }}
     uses: ./.github/workflows/ci.yml
 
   build:
+    if: ${{ !inputs.sha }}
     needs: checks
     runs-on: ubuntu-latest
 
@@ -81,10 +89,29 @@ jobs:
   
   deploy:
     needs: build
+    # Runs after a successful build, or on a rollback, where build is skipped on purpose.
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.sha) }}
     runs-on: self-hosted
 
     steps:
+      # The tag to deploy: the rollback input, or this run's commit. The input is free text, so it
+      # goes through `env:` (never `${{ }}` inside `run:`) and must be a full SHA before it is used.
+      - name: Resolve image tag
+        id: tag
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          TAG="${INPUT_SHA:-$GITHUB_SHA}"
+          if [[ ! "$TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The sha input must be a full 40-character commit SHA in lowercase hex."
+            exit 1
+          fi
+          echo "value=$TAG" >> "$GITHUB_OUTPUT"
+
+      # Check out the deployed commit, so a rollback also gets the Compose files its images were built with.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.value }}
 
       # The images are private: log in on every deploy instead of relying on credentials stored on the host.
       - name: Login to GitHub Container Registry
@@ -101,6 +128,9 @@ jobs:
 
       - name: Deploy
         working-directory: /opt/spendtracker
+        env:
+          # Compose prefers a shell variable over the env files, so these commands use this tag.
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
         run: |
           # The EC2 disk is small: remove the images no container uses before pulling the new ones.
           # Never `docker system prune`: it also removes the external `web` network and the nginx
@@ -108,5 +138,12 @@ jobs:
           docker image prune -a -f
           df -h /
           docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+
+          # Record the deployed tag for manual commands on the host (`.env` keeps the settings, this
+          # file only the version). Written after a successful pull, so a SHA without images in GHCR
+          # leaves the previous version recorded. Manual commands: docs/deploy.md.
+          echo "IMAGE_TAG=$IMAGE_TAG" > deploy.env
+
+          # --wait fails the job if the backend's healthcheck does not pass within the timeout.
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans --wait --wait-timeout 180
           docker image prune -f
