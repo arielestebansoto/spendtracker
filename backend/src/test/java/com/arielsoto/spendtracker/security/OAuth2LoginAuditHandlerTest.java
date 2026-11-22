@@ -21,7 +21,7 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
-import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
+import com.arielsoto.spendtracker.logging.SecurityMdcFilter;
 import com.arielsoto.spendtracker.user.UserApp;
 
 @ExtendWith(MockitoExtension.class)

@@ -12,8 +12,8 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import com.arielsoto.spendtracker.loggin.ClientIpResolver;
-import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
+import com.arielsoto.spendtracker.logging.ClientIpResolver;
+import com.arielsoto.spendtracker.logging.SecurityMdcFilter;
 import com.arielsoto.spendtracker.user.UserApp;
 
 import jakarta.servlet.http.HttpServletRequest;

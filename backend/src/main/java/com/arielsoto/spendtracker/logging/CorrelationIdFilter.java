@@ -1,4 +1,4 @@
-package com.arielsoto.spendtracker.loggin;
+package com.arielsoto.spendtracker.logging;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

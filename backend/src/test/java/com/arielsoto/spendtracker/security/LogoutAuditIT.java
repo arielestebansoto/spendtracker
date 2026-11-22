@@ -17,7 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.arielsoto.spendtracker.loggin.SecurityMdcFilter;
+import com.arielsoto.spendtracker.logging.SecurityMdcFilter;
 import com.arielsoto.spendtracker.support.PostgresIntegrationTest;
 
 import ch.qos.logback.classic.Logger;
