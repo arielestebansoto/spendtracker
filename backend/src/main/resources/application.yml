@@ -120,3 +120,11 @@ app:
       detect-text-pages: 100
       bedrock-input-tokens: 100000
       bedrock-output-tokens: 100000
+
+# OpenAPI spec (/v3/api-docs) and Swagger UI (/swagger-ui.html): off unless a profile turns them on,
+# since they describe the whole API surface. The dev profile turns them on.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

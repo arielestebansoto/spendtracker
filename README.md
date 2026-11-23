@@ -104,7 +104,7 @@ To run it on your own machine, see [Local development](docs/local-development.md
 ## Documentation
 
 - [How it works](docs/architecture.md): the receipt pipeline, the decisions and trade-offs, the security model and deployment.
-- [Local development](docs/local-development.md): setup, environment variables and tests.
+- [Local development](docs/local-development.md): setup, environment variables, tests and the [API docs](docs/local-development.md#api-docs) (OpenAPI spec and Swagger UI).
 - [Glossary](GLOSSARY.md): the domain language.
 - [Architecture decision records](docs/adr).
 - Operations runbooks:

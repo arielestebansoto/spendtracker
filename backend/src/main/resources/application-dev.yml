@@ -21,6 +21,17 @@ app:
     # A fresh local database has no allowed emails; set ACCESS_ALLOWLIST_ENABLED=true to try the allowlist.
     allowlist-enabled: ${ACCESS_ALLOWLIST_ENABLED:false}
     
+springdoc:
+  api-docs:
+    enabled: true
+  paths-to-match: /api/v1/**
+  swagger-ui:
+    enabled: true
+    # Swagger UI copies the XSRF-TOKEN cookie into the X-XSRF-TOKEN header of every
+    # state-changing request, like the frontend does.
+    csrf:
+      enabled: true
+
 logging:
   level:
     org.hibernate.SQL: DEBUG
