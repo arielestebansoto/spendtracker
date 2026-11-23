@@ -75,6 +75,14 @@ To work on one side at a time:
 - Backend: `cd backend && ./gradlew bootRun`. Postgres must be running, and `DB_URL` must point to `localhost:5432`.
 - Frontend: `cd frontend && pnpm install && pnpm dev`.
 
+## API docs
+
+With the `dev` profile, the backend serves its OpenAPI spec at <http://localhost:8080/v3/api-docs> and Swagger UI at <http://localhost:8080/swagger-ui.html>. Other profiles, prod included, serve neither, since they describe the whole API surface.
+
+Both need a session: log in through the frontend first. Cookies are shared across ports of the same host, so Swagger UI sends the session cookie, and it copies the `XSRF-TOKEN` cookie into the `X-XSRF-TOKEN` header of POST, PUT and DELETE requests. If one of those gets 403, call `GET /api/v1/security/csrf` once to set the cookie.
+
+The spec comes from the controllers and DTOs, through [springdoc](https://springdoc.org); the security schemes and error responses are added in [`OpenApiConfig`](../backend/src/main/java/com/arielsoto/spendtracker/config/OpenApiConfig.java).
+
 ## Tests
 
 ```bash

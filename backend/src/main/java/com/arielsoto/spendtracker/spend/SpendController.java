@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
 
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -79,6 +80,8 @@ public class SpendController {
 
     @GetMapping
     public Page<SpendListItemResponse> findAll(
+        // In the OpenAPI spec as the page, size and sort query parameters, not one pageable object.
+        @ParameterObject
         @PageableDefault(
             size = 20,
             sort = "spendDate",

@@ -48,6 +48,9 @@ dependencies {
 	implementation 'software.amazon.awssdk:textract'
 	implementation 'software.amazon.awssdk:bedrockruntime'
 	implementation 'software.amazon.awssdk:costexplorer'
+	// OpenAPI spec and Swagger UI, served only with the dev profile (see application-dev.yml).
+	// The 3.0.x line targets Spring Boot 4.0; 3.1+ targets Boot 4.1, so upgrade it together with Boot.
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 }
 
 tasks.named('test') {
