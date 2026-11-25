@@ -241,21 +241,10 @@ function SpendsPageContent() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 pt-8 pb-24 md:pb-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
       {deletedMessage && <Toast message={deletedMessage} onDismiss={dismissDeletedToast} />}
 
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Spends</h1>
-        <Link
-          href="/spends/new"
-          className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          New spend
-        </Link>
-      </div>
+      <h1 className="text-2xl font-bold mb-6">Spends</h1>
 
       <h2 className="text-sm font-medium text-muted-foreground mb-2">This month</h2>
       <div className="flex sm:grid sm:grid-cols-3 gap-3 sm:gap-4 overflow-x-auto sm:overflow-visible snap-x snap-mandatory mb-8 scrollbar-none">
@@ -399,7 +388,7 @@ function SpendsPageContent() {
         ) : (
           <EmptyState
             title="No spends yet"
-            description="Tap New spend to add your first one."
+            description="Tap + to add your first one."
           />
         )
       ) : (
@@ -427,15 +416,6 @@ function SpendsPageContent() {
         </>
       )}
 
-      <Link
-        href="/spends/new"
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 md:hidden inline-flex items-center gap-2 px-5 py-3 rounded-full bg-primary text-primary-foreground text-sm font-medium shadow-lg hover:opacity-90 transition z-50"
-      >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-        New spend
-      </Link>
     </div>
   );
 }

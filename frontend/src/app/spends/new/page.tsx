@@ -4,13 +4,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
-import {
-  createSpendFromReceipt,
-  ReceiptUploadError,
-  ReceiptUploadErrorKind,
-} from "@/app/lib/receipt";
 import LoadingState from "@/app/components/LoadingState";
-import ReceiptUpload from "@/app/components/ReceiptUpload";
+import ReceiptCapture from "@/app/components/ReceiptCapture";
+import { floatingButtonClass } from "@/app/components/NewSpendButton";
 
 type Category = {
   id: string;
@@ -26,18 +22,6 @@ type FormState = {
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
 
-type Mode = "receipt" | "manual";
-type Status = "idle" | "uploading" | "processing" | "error";
-
-const RECEIPT_ERROR_MESSAGES: Record<ReceiptUploadErrorKind, string> = {
-  invalid_file: "This file is not a supported receipt. Upload a JPEG or PNG photo, or a 1-page PDF.",
-  too_large: "The file is larger than 5 MB.",
-  ai_quota: "You have no AI quota left to read receipts. Enter the details manually instead.",
-  rate_limit_minute: "Too many uploads in a short time. Wait a minute and try again.",
-  rate_limit_day: "You reached today's receipt upload limit. Try again tomorrow or enter the details manually.",
-  unknown: "Failed to upload receipt. Please try again or enter details manually.",
-};
-
 const initialFormState: FormState = {
   categoryId: "",
   description: "",
@@ -45,17 +29,17 @@ const initialFormState: FormState = {
   spendDate: new Date().toISOString().slice(0, 10),
 };
 
+// Every way to add a Spend on one page: upload a file, fill in the form, or (on a phone) the camera
+// button in the spot where the "+" was.
 export default function NewSpendPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
   const [categories, setCategories] = useState<Category[]>([]);
-  const [mode, setMode] = useState<Mode>("receipt");
-  const [status, setStatus] = useState<Status>("idle");
+  const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState<FormState>(initialFormState);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState("");
-  const [receiptError, setReceiptError] = useState("");
 
   const isCategoryDisabled = useMemo(() => categories.length === 0, [categories.length]);
 
@@ -93,28 +77,13 @@ export default function NewSpendPage() {
     return Object.keys(nextErrors).length === 0;
   }
 
-  async function handleReceiptUpload(file: File) {
-    setStatus("processing");
-    setReceiptError("");
-
-    try {
-      const created = await createSpendFromReceipt(file);
-      router.push(`/spends/${created.id}?created=receipt`);
-    } catch (error) {
-      setStatus("error");
-      setReceiptError(
-        RECEIPT_ERROR_MESSAGES[error instanceof ReceiptUploadError ? error.kind : "unknown"]
-      );
-    }
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError("");
 
     if (!validateForm()) return;
 
-    setStatus("uploading");
+    setIsSaving(true);
     try {
       const response = await apiFetch("/api/v1/spends", {
         method: "POST",
@@ -132,105 +101,95 @@ export default function NewSpendPage() {
       const created = await response.json();
       router.push(`/spends/${created.id}?created=manual`);
     } catch {
-      setStatus("error");
+      setIsSaving(false);
       setSubmitError("Could not create spend. Please review the data and try again.");
     }
+  }
+
+  // Back to wherever the user came from; straight to the spends list when there is no history.
+  function goBack() {
+    if (window.history.length > 1) router.back();
+    else router.push("/spends");
   }
 
   if (authLoading || !user) return <LoadingState />;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 md:max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">New spend</h1>
-        <p className="text-sm text-muted-foreground mt-1">Upload a receipt or enter details manually.</p>
-      </div>
+    // Bottom padding on a phone, so the camera button never covers the form's buttons.
+    <div className="max-w-xl md:max-w-5xl mx-auto px-4 pt-8 pb-28 md:pb-8">
+      <button
+        type="button"
+        onClick={goBack}
+        className="mb-3 text-sm text-muted-foreground hover:text-foreground transition"
+      >
+        ← Back
+      </button>
+      <h1 className="text-2xl font-bold mb-6">New spend</h1>
 
-      {/* Desktop: two-column layout */}
-      <div className="hidden md:grid md:grid-cols-2 md:gap-6">
-        {/* Left: Receipt upload */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Receipt</h2>
-          <ReceiptUpload
-            onUpload={handleReceiptUpload}
-            onSelectionChange={() => setReceiptError("")}
-            error={receiptError}
-            isProcessing={status === "processing"}
-            disabled={status === "uploading" || status === "processing"}
-          />
+      {/* Phone: one column, upload on top and the form below. Desktop: upload left, form right,
+          each under its own heading. */}
+      <div className="md:grid md:grid-cols-2 md:gap-6">
+        <div>
+          <h2 className="hidden md:block text-lg font-semibold mb-4">Receipt</h2>
+          <ReceiptCapture source="file">
+            {(openFilePicker) => (
+              <button
+                type="button"
+                onClick={openFilePicker}
+                className="w-full border-2 border-dashed border-border rounded-xl p-6 md:p-8 text-center hover:border-primary/50 transition"
+              >
+                <span className="hidden md:flex w-12 h-12 mb-2 rounded-full bg-muted items-center justify-center mx-auto">
+                  <svg className="w-6 h-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                </span>
+                <span className="block text-sm font-medium">Upload a receipt</span>
+                <span className="block mt-1 text-xs text-muted-foreground">
+                  A photo or a 1-page PDF, up to 5 MB.
+                </span>
+              </button>
+            )}
+          </ReceiptCapture>
         </div>
 
-        {/* Right: Manual form */}
+        <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground md:hidden">
+          <div className="flex-1 border-t border-border" />
+          or enter it manually
+          <div className="flex-1 border-t border-border" />
+        </div>
+
         <div>
-          <h2 className="text-lg font-semibold mb-4">Manual entry</h2>
+          <h2 className="hidden md:block text-lg font-semibold mb-4">Manual entry</h2>
           <ManualForm
             form={form}
             errors={errors}
             categories={categories}
             isCategoryDisabled={isCategoryDisabled}
-            isSaving={status === "uploading" || status === "processing"}
+            isSaving={isSaving}
             submitError={submitError}
             onUpdateField={updateField}
             onSubmit={handleSubmit}
-            onCancel={() => router.back()}
+            onCancel={goBack}
           />
         </div>
       </div>
 
-      {/* Mobile: conditional layout */}
-      <div className="md:hidden">
-        {mode === "receipt" ? (
-          <div className="space-y-4">
-            <ReceiptUpload
-              onUpload={handleReceiptUpload}
-              onSelectionChange={() => setReceiptError("")}
-              error={receiptError}
-              isProcessing={status === "processing"}
-              disabled={status === "uploading" || status === "processing"}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setMode("manual");
-                setSubmitError("");
-                setReceiptError("");
-                setStatus("idle");
-              }}
-              disabled={status === "uploading" || status === "processing"}
-              className="w-full py-3 rounded-lg border border-border text-sm font-medium hover:bg-accent transition disabled:opacity-60"
-            >
-              Enter manually
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <ManualForm
-              form={form}
-              errors={errors}
-              categories={categories}
-              isCategoryDisabled={isCategoryDisabled}
-              isSaving={status === "uploading" || status === "processing"}
-              submitError={submitError}
-              onUpdateField={updateField}
-              onSubmit={handleSubmit}
-              onCancel={() => router.back()}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setMode("receipt");
-                setSubmitError("");
-                setReceiptError("");
-                setStatus("idle");
-              }}
-              disabled={status === "uploading" || status === "processing"}
-              className="w-full py-3 rounded-lg border border-border text-sm font-medium hover:bg-accent transition disabled:opacity-60"
-            >
-              Upload receipt instead
-            </button>
-          </div>
+      {/* Phone only: the camera, in the spot where the "+" was. */}
+      <ReceiptCapture source="camera">
+        {(openCamera) => (
+          <button
+            type="button"
+            onClick={openCamera}
+            aria-label="Take a photo of the receipt"
+            className={`md:hidden ${floatingButtonClass}`}
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
         )}
-      </div>
+      </ReceiptCapture>
     </div>
   );
 }
