@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
 import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
 import Toast from "@/app/components/Toast";
+import DeleteSpendModal from "@/app/components/DeleteSpendModal";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
 import { retrySpend } from "@/app/lib/retrySpend";
@@ -148,6 +150,25 @@ export default function ViewSpendPage() {
     }
   }
 
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
+  const dismissDeleteFailedToast = useCallback(() => setDeleteFailed(false), []);
+
+  // Back to the spends page, which confirms the delete (?deleted=1).
+  async function handleDelete() {
+    setIsDeleting(true);
+    try {
+      const response = await apiFetch(`/api/v1/spends/${spendId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to delete");
+      router.push("/spends?deleted=1");
+    } catch {
+      setIsDeleting(false);
+      setIsDeleteOpen(false);
+      setDeleteFailed(true);
+    }
+  }
+
   if (authLoading || !user) return <LoadingState />;
   if (error) {
     return (
@@ -167,35 +188,65 @@ export default function ViewSpendPage() {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {createdMessage && <Toast message={createdMessage} onDismiss={dismissCreatedToast} />}
 
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Spend detail</h1>
-          <SpendStatusBadge status={spend.status} />
-        </div>
-        <div className="flex gap-2">
+      {deleteFailed && (
+        <Toast
+          message="Could not delete spend. Try again."
+          variant="error"
+          onDismiss={dismissDeleteFailedToast}
+        />
+      )}
+
+      {isDeleteOpen && (
+        <DeleteSpendModal
+          onConfirm={handleDelete}
+          onCancel={() => setIsDeleteOpen(false)}
+          isDeleting={isDeleting}
+        />
+      )}
+
+      <Link
+        href="/spends"
+        className="inline-block mb-3 text-sm text-muted-foreground hover:text-foreground transition"
+      >
+        ← Spends
+      </Link>
+
+      <div className="flex items-center gap-3 mb-3">
+        <h1 className="text-2xl font-bold">Spend detail</h1>
+        <SpendStatusBadge status={spend.status} />
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button
+          onClick={() => router.push(`/spends/${spendId}/edit`)}
+          disabled={isInProgress(spend.status)}
+          className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Edit
+        </button>
+        {spend.receiptUrl && (
           <button
-            onClick={() => router.push(`/spends/${spendId}/edit`)}
-            disabled={isInProgress(spend.status)}
+            onClick={reclassify}
+            disabled={isReclassifying || spend.status !== "PROCESSED"}
             className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Edit
+            Reclassify
           </button>
-          {spend.receiptUrl && (
-            <button
-              onClick={reclassify}
-              disabled={isReclassifying || spend.status !== "PROCESSED"}
-              className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Reclassify
-            </button>
-          )}
+        )}
+        {spend.status === "FAILED" && spend.failureReason !== "UNREADABLE_RECEIPT" && (
           <button
-            onClick={() => router.back()}
+            onClick={handleRetry}
             className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition"
           >
-            Back
+            Retry
           </button>
-        </div>
+        )}
+        <button
+          onClick={() => setIsDeleteOpen(true)}
+          className="px-4 py-2 rounded-lg border border-border text-sm text-destructive hover:bg-destructive hover:text-destructive-foreground transition"
+        >
+          Delete
+        </button>
       </div>
 
       {reclassifyError && (
@@ -218,8 +269,8 @@ export default function ViewSpendPage() {
         <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
           <p className="text-sm font-medium text-destructive">We could not read this receipt</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            No text was found in the file, or it has more than one page. Delete this spend from the
-            spends list and upload a clearer photo, or enter the details manually.
+            No text was found in the file, or it has more than one page. Delete this spend and
+            upload a clearer photo, or enter the details manually.
           </p>
         </div>
       )}
@@ -228,18 +279,11 @@ export default function ViewSpendPage() {
         <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
           <p className="text-sm font-medium text-destructive">We could not process this receipt</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            The image is still saved. Retry to read it again, or delete this spend from the spends
-            list.
+            The image is still saved. Retry to read it again, or delete this spend.
           </p>
           {retryFailed && (
             <p className="mt-2 text-sm text-destructive">Could not retry this spend. Try again.</p>
           )}
-          <button
-            onClick={handleRetry}
-            className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-          >
-            Retry
-          </button>
         </div>
       )}
 

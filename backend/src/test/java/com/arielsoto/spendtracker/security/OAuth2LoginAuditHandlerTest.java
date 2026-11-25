@@ -27,7 +27,7 @@ import com.arielsoto.spendtracker.user.UserApp;
 @ExtendWith(MockitoExtension.class)
 class OAuth2LoginAuditHandlerTest {
 
-    private static final String SUCCESS_URL = "http://localhost:3000/dashboard";
+    private static final String SUCCESS_URL = "http://localhost:3000";
 
     private static final String FAILURE_URL = "http://localhost:3000";
 

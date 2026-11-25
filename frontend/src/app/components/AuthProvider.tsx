@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentUser);
 
         if (pathname === "/") {
-          router.replace("/dashboard");
+          router.replace("/spends");
           return;
         }
 

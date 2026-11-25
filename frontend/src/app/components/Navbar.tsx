@@ -23,7 +23,6 @@ export default function Navbar() {
   }
 
   const navLinks = [
-    { href: "/dashboard", label: "Dashboard" },
     { href: "/spends", label: "Spends" },
     { href: "/rules", label: "Rules" },
     { href: "/settings", label: "Settings" },
