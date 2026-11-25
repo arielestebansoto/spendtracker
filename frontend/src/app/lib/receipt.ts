@@ -77,3 +77,17 @@ async function readErrorBody(response: Response): Promise<ErrorBody | null> {
     return null;
   }
 }
+
+export const RECEIPT_ERROR_MESSAGES: Record<ReceiptUploadErrorKind, string> = {
+  invalid_file: "This file is not a supported receipt. Upload a JPEG or PNG photo, or a 1-page PDF.",
+  too_large: "The file is larger than 5 MB.",
+  ai_quota: "You have no AI quota left to read receipts. Enter the details manually instead.",
+  rate_limit_minute: "Too many uploads in a short time. Wait a minute and try again.",
+  rate_limit_day: "You reached today's receipt upload limit. Try again tomorrow or enter the details manually.",
+  unknown: "Failed to upload receipt. Please try again or enter details manually.",
+};
+
+// Errors where entering the Spend by hand is the way forward, so the message links to the form.
+export function suggestsManualEntry(kind: ReceiptUploadErrorKind) {
+  return kind === "ai_quota" || kind === "rate_limit_day" || kind === "unknown";
+}

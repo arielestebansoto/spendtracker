@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "./components/AuthProvider";
 import Navbar from "./components/Navbar";
+import NewSpendButton from "./components/NewSpendButton";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -24,7 +25,10 @@ export default function RootLayout({
         <AuthProvider>
           <div className="min-h-screen flex flex-col">
             <Navbar />
-            <main className="flex-1">{children}</main>
+            <main className="flex-1">
+              {children}
+              <NewSpendButton />
+            </main>
           </div>
         </AuthProvider>
       </body>
