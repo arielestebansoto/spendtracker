@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/components/AuthProvider";
 import { apiFetch } from "@/app/lib/api";
+import { fetchSpendSummary, SpendSummary } from "@/app/lib/spendSummary";
 import LoadingState from "@/app/components/LoadingState";
 import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
-import DeleteSpendModal from "@/app/components/DeleteSpendModal";
-import Toast, { ToastVariant } from "@/app/components/Toast";
+import Toast from "@/app/components/Toast";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
-import { retrySpend } from "@/app/lib/retrySpend";
+
+const PAGE_SIZE = 20;
 
 type Spend = {
   id: string;
@@ -30,10 +31,7 @@ type Category = {
 
 type PageResponse<T> = {
   content: T[];
-  totalPages: number;
   totalElements: number;
-  number: number;
-  size: number;
 };
 
 type FilterValues = {
@@ -67,117 +65,156 @@ function formatDate(dateStr: string) {
   });
 }
 
+async function fetchSpends(filters: FilterValues, page: number, size: number) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (filters.categoryId) params.set("categoryId", filters.categoryId);
+  if (filters.description) params.set("description", filters.description);
+  if (filters.minAmount) params.set("minAmount", filters.minAmount);
+  if (filters.maxAmount) params.set("maxAmount", filters.maxAmount);
+  if (filters.startDate) params.set("startDate", filters.startDate);
+  if (filters.endDate) params.set("endDate", filters.endDate);
+
+  const res = await apiFetch(`/api/v1/spends?${params}`);
+  if (!res.ok) throw new Error("Failed to load spends");
+  const data: PageResponse<Spend> = await res.json();
+  return data;
+}
+
+// useSearchParams needs a Suspense boundary for the page to build.
 export default function SpendsPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <SpendsPageContent />
+    </Suspense>
+  );
+}
+
+function SpendsPageContent() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // The detail page adds ?deleted=1 after deleting a Spend so this page can confirm it.
+  const [deletedMessage, setDeletedMessage] = useState<string | null>(() =>
+    searchParams.has("deleted") ? "Spend deleted." : null
+  );
+  // Stable, so re-renders do not restart the toast timer.
+  const dismissDeletedToast = useCallback(() => setDeletedMessage(null), []);
+
+  // Drop the flag so a reload does not show the toast again.
+  useEffect(() => {
+    if (searchParams.has("deleted")) router.replace("/spends");
+  }, [searchParams, router]);
+
+  const [summary, setSummary] = useState<SpendSummary | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const [spends, setSpends] = useState<Spend[]>([]);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
-  const [pageSize, setPageSize] = useState(20);
+  // How many pages of PAGE_SIZE are on screen; "Load more spends" adds one.
+  const [loadedPages, setLoadedPages] = useState(1);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+  // "Try again" on the error state bumps this counter to load the first page again.
+  const [retryCount, setRetryCount] = useState(0);
 
-  const [deleteTarget, setDeleteTarget] = useState<Spend | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
-
-  const [categories, setCategories] = useState<Category[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
-
   const [draft, setDraft] = useState<FilterValues>(emptyFilters);
   const [applied, setApplied] = useState<FilterValues>(emptyFilters);
 
-  const hasActiveFilters =
-    applied.categoryId || applied.description || applied.minAmount || applied.maxAmount || applied.startDate || applied.endDate;
+  // Changes whenever the list starts over, so a "Load more" or a poll that was still running
+  // does not mix results for the old filters into the new list.
+  const listVersionRef = useRef(0);
+
+  const hasActiveFilters = Object.values(applied).some((value) => value !== "");
+  const hasMore = spends.length < totalElements;
 
   useEffect(() => {
     if (!user) return;
+    fetchSpendSummary()
+      .then(setSummary)
+      .catch(() => {});
     apiFetch("/api/v1/categories")
       .then((res) => res.json())
       .then((data: Category[]) => setCategories(data))
       .catch(() => {});
   }, [user]);
 
-  // Each poll bumps this counter, which re-runs the fetch below with the same filters.
-  const [pollCount, setPollCount] = useState(0);
-  const isPollRef = useRef(false);
-  // "Try again" on the error state bumps this counter to fetch the same page again.
-  const [retryCount, setRetryCount] = useState(0);
-
+  // A new set of filters (or a retry) starts the list over from the first page.
   useEffect(() => {
     if (!user) return;
 
     let cancelled = false;
-    // A failed background refresh keeps the current list; the next poll tries again.
-    const isPoll = isPollRef.current;
-    isPollRef.current = false;
 
-    const params = new URLSearchParams({ page: String(currentPage) });
-    if (applied.categoryId) params.set("categoryId", applied.categoryId);
-    if (applied.description) params.set("description", applied.description);
-    if (applied.minAmount) params.set("minAmount", applied.minAmount);
-    if (applied.maxAmount) params.set("maxAmount", applied.maxAmount);
-    if (applied.startDate) params.set("startDate", applied.startDate);
-    if (applied.endDate) params.set("endDate", applied.endDate);
-
-    apiFetch(`/api/v1/spends?${params}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load spends");
-        return res.json();
-      })
-      .then((data: PageResponse<Spend>) => {
+    fetchSpends(applied, 0, PAGE_SIZE)
+      .then((data) => {
         if (cancelled) return;
         setSpends(data.content);
-        setTotalPages(data.totalPages);
         setTotalElements(data.totalElements);
-        setPageSize(data.size);
+        setLoadedPages(1);
         setStatus("ready");
       })
       .catch(() => {
-        if (!cancelled && !isPoll) setStatus("error");
+        if (!cancelled) setStatus("error");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [user, currentPage, applied, pollCount, retryCount]);
+  }, [user, applied, retryCount]);
 
-  // Poll only while at least one Spend on screen is still being processed.
+  async function loadMore() {
+    const version = listVersionRef.current;
+    setIsLoadingMore(true);
+    setLoadMoreFailed(false);
+    try {
+      const data = await fetchSpends(applied, loadedPages, PAGE_SIZE);
+      if (version !== listVersionRef.current) return;
+      // A Spend created since the first page shifts the pages by one; skip what is already shown.
+      setSpends((current) => {
+        const shownIds = new Set(current.map((spend) => spend.id));
+        return [...current, ...data.content.filter((spend) => !shownIds.has(spend.id))];
+      });
+      setTotalElements(data.totalElements);
+      setLoadedPages((pages) => pages + 1);
+    } catch {
+      setLoadMoreFailed(true);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  // While a Spend on screen is being processed, refresh every loaded Spend in one request,
+  // and the cards, which change when it is done. A failed refresh keeps what is shown.
   const hasInProgress = spends.some((spend) => isInProgress(spend.status));
-  usePollWhile(hasInProgress, () => {
-    isPollRef.current = true;
-    setPollCount((count) => count + 1);
+  usePollWhile(hasInProgress, async () => {
+    const version = listVersionRef.current;
+    try {
+      const data = await fetchSpends(applied, 0, loadedPages * PAGE_SIZE);
+      if (version !== listVersionRef.current) return;
+      setSpends(data.content);
+      setTotalElements(data.totalElements);
+      setSummary(await fetchSpendSummary());
+    } catch {
+      // The next poll tries again.
+    }
   });
 
-  const prevFiltersRef = useRef(applied);
-
-  useEffect(() => {
-    const prev = prevFiltersRef.current;
-    const changed =
-      prev.categoryId !== applied.categoryId ||
-      prev.description !== applied.description ||
-      prev.minAmount !== applied.minAmount ||
-      prev.maxAmount !== applied.maxAmount ||
-      prev.startDate !== applied.startDate ||
-      prev.endDate !== applied.endDate;
-
-    if (changed && currentPage !== 0) {
-      setCurrentPage(0);
-    }
-
-    prevFiltersRef.current = applied;
-  }, [applied, currentPage]);
+  function startOver(filters: FilterValues) {
+    listVersionRef.current += 1;
+    setStatus("loading");
+    setApplied(filters);
+  }
 
   function applyFilters() {
-    setApplied(draft);
+    startOver(draft);
     setFiltersOpen(false);
   }
 
   function resetFilters() {
     setDraft(emptyFilters);
-    setApplied(emptyFilters);
+    startOver(emptyFilters);
   }
 
   function openFilters() {
@@ -190,81 +227,25 @@ export default function SpendsPage() {
     setFiltersOpen(false);
   }
 
-  function retryLoad() {
-    setStatus("loading");
-    setRetryCount((count) => count + 1);
-  }
-
-  // The list is replaced by the loading state until the new page arrives.
-  function goToPage(page: number) {
-    setStatus("loading");
-    setCurrentPage(page);
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
-    try {
-      const response = await apiFetch(`/api/v1/spends/${deleteTarget.id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete");
-
-      setSpends((prev) => prev.filter((s) => s.id !== deleteTarget.id));
-      const nextTotal = Math.max(totalElements - 1, 0);
-      setTotalElements(nextTotal);
-      setTotalPages(Math.ceil(nextTotal / pageSize));
-
-      if (spends.length === 1 && currentPage > 0) {
-        setCurrentPage((p) => p - 1);
-      }
-
-      setToast({ message: "Spend deleted.", variant: "success" });
-    } catch {
-      setToast({ message: "Could not delete spend. Try again.", variant: "error" });
-    } finally {
-      setIsDeleting(false);
-      setDeleteTarget(null);
-    }
-  }
-
-  async function handleRetry(spend: Spend) {
-    if (await retrySpend(spend.id)) {
-      // Back to PENDING on screen right away; this also restarts the polling.
-      setSpends((prev) => prev.map((s) => (s.id === spend.id ? { ...s, status: "PENDING" } : s)));
-    } else {
-      setToast({ message: "Could not retry this spend. Try again.", variant: "error" });
-    }
-  }
-
   if (authLoading || !user) return <LoadingState />;
-  if (status === "error") return <ErrorState message="Could not load spends." onRetry={retryLoad} />;
+  if (status === "error") {
+    return (
+      <ErrorState
+        message="Could not load spends."
+        onRetry={() => {
+          setStatus("loading");
+          setRetryCount((count) => count + 1);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 pt-8 pb-24 md:pb-8">
-      {toast && (
-        <Toast
-          message={toast.message}
-          variant={toast.variant}
-          onDismiss={() => setToast(null)}
-        />
-      )}
+      {deletedMessage && <Toast message={deletedMessage} onDismiss={dismissDeletedToast} />}
 
-      {deleteTarget && (
-        <DeleteSpendModal
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          isDeleting={isDeleting}
-        />
-      )}
-
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">Spends</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {totalElements} total {totalElements === 1 ? "spend" : "spends"}
-          </p>
-        </div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Spends</h1>
         <Link
           href="/spends/new"
           className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
@@ -274,6 +255,13 @@ export default function SpendsPage() {
           </svg>
           New spend
         </Link>
+      </div>
+
+      <h2 className="text-sm font-medium text-muted-foreground mb-2">This month</h2>
+      <div className="flex sm:grid sm:grid-cols-3 gap-3 sm:gap-4 overflow-x-auto sm:overflow-visible snap-x snap-mandatory mb-8 scrollbar-none">
+        <SummaryCard label="Total spent" value={summary && formatCurrency(summary.totalSpent)} />
+        <SummaryCard label="Spends" value={summary && String(summary.spendCount)} />
+        <SummaryCard label="Average" value={summary && formatCurrency(summary.averageSpend)} />
       </div>
 
       <div className="mb-6">
@@ -395,107 +383,45 @@ export default function SpendsPage() {
       {status === "loading" ? (
         <LoadingState />
       ) : spends.length === 0 ? (
-        <EmptyState
-          title={hasActiveFilters ? "No matching spends" : "No spends yet"}
-          description={hasActiveFilters ? "Try adjusting your filters." : "Start tracking your expenses."}
-          action={
-            hasActiveFilters ? (
+        hasActiveFilters ? (
+          <EmptyState
+            title="No matching spends"
+            description="Try adjusting your filters."
+            action={
               <button
                 onClick={resetFilters}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition"
               >
                 Clear filters
               </button>
-            ) : (
-              <Link
-                href="/spends/new"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
-              >
-                Create your first spend
-              </Link>
-            )
-          }
-        />
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No spends yet"
+            description="Tap New spend to add your first one."
+          />
+        )
       ) : (
         <>
           <div className="space-y-2">
             {spends.map((spend) => (
-              <div
-                key={spend.id}
-                onClick={() => router.push(`/spends/${spend.id}`)}
-                className="flex items-center justify-between px-4 py-3 rounded-lg border border-border hover:bg-accent transition cursor-pointer"
-              >
-                <div className="min-w-0 flex-1">
-                  {spend.status === "PROCESSED" ? (
-                    <div className="flex items-center gap-3">
-                      <p className="text-sm font-medium">{spend.category}</p>
-                      {spend.description && (
-                        <p className="text-xs text-muted-foreground truncate hidden sm:block">
-                          {spend.description}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    // Provisional values are placeholders, so only the receipt state is shown.
-                    <div className="flex items-center gap-3">
-                      <p className="text-sm font-medium">Receipt</p>
-                      <SpendStatusBadge status={spend.status} />
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-0.5">{formatDate(spend.spendDate)}</p>
-                </div>
-
-                <div className="flex items-center gap-3 shrink-0">
-                  {spend.status === "PROCESSED" && (
-                    <span className="text-sm font-semibold">{formatCurrency(spend.amount)}</span>
-                  )}
-                  <div className="flex gap-1">
-                    {spend.status === "FAILED" && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleRetry(spend); }}
-                        className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); router.push(`/spends/${spend.id}/edit`); }}
-                      disabled={isInProgress(spend.status)}
-                      className="px-2.5 py-1 rounded text-xs border border-border hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(spend); }}
-                      className="px-2.5 py-1 rounded text-xs border border-border text-destructive hover:bg-destructive hover:text-destructive-foreground transition"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <SpendRow key={spend.id} spend={spend} />
             ))}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-4 mt-6">
+          {hasMore && (
+            <div className="mt-6 text-center">
               <button
-                disabled={currentPage === 0}
-                onClick={() => goToPage(currentPage - 1)}
-                className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50 hover:bg-accent transition"
+                onClick={loadMore}
+                disabled={isLoadingMore}
+                className="text-sm text-muted-foreground hover:text-foreground transition disabled:opacity-60"
               >
-                Previous
+                {isLoadingMore ? "Loading..." : "Load more spends"}
               </button>
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage + 1} of {totalPages}
-              </span>
-              <button
-                disabled={currentPage >= totalPages - 1}
-                onClick={() => goToPage(currentPage + 1)}
-                className="px-4 py-2 rounded-lg border border-border text-sm disabled:opacity-50 hover:bg-accent transition"
-              >
-                Next
-              </button>
+              {loadMoreFailed && (
+                <p className="mt-2 text-sm text-destructive">Could not load more spends. Try again.</p>
+              )}
             </div>
           )}
         </>
@@ -511,5 +437,46 @@ export default function SpendsPage() {
         New spend
       </Link>
     </div>
+  );
+}
+
+// `value` is null while the summary loads, or when it could not be loaded.
+function SummaryCard({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded-xl border border-border p-4 min-w-[65%] sm:min-w-0 snap-start">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold mt-1">{value ?? "–"}</p>
+    </div>
+  );
+}
+
+function SpendRow({ spend }: { spend: Spend }) {
+  return (
+    <Link
+      href={`/spends/${spend.id}`}
+      className="flex items-center justify-between gap-4 px-4 py-3 rounded-lg border border-border hover:bg-accent transition"
+    >
+      <div className="min-w-0 flex-1">
+        {spend.status === "PROCESSED" ? (
+          <div className="flex items-center gap-3 min-w-0">
+            <p className="text-sm font-medium shrink-0">{spend.category}</p>
+            {spend.description && (
+              <p className="text-xs text-muted-foreground truncate">{spend.description}</p>
+            )}
+          </div>
+        ) : (
+          // Provisional values are placeholders, so only the receipt state is shown.
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-medium">Receipt</p>
+            <SpendStatusBadge status={spend.status} />
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground mt-0.5">{formatDate(spend.spendDate)}</p>
+      </div>
+
+      {spend.status === "PROCESSED" && (
+        <span className="text-sm font-semibold shrink-0">{formatCurrency(spend.amount)}</span>
+      )}
+    </Link>
   );
 }
