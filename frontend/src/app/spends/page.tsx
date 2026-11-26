@@ -10,6 +10,7 @@ import LoadingState from "@/app/components/LoadingState";
 import EmptyState from "@/app/components/EmptyState";
 import ErrorState from "@/app/components/ErrorState";
 import Toast from "@/app/components/Toast";
+import NewSpendButton from "@/app/components/NewSpendButton";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
 
@@ -241,7 +242,7 @@ function SpendsPageContent() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 pt-8 pb-24">
       {deletedMessage && <Toast message={deletedMessage} onDismiss={dismissDeletedToast} />}
 
       <h1 className="text-2xl font-bold mb-6">Spends</h1>
@@ -416,6 +417,7 @@ function SpendsPageContent() {
         </>
       )}
 
+      <NewSpendButton />
     </div>
   );
 }
