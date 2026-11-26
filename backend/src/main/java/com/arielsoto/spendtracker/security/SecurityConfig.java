@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -45,6 +46,8 @@ public class SecurityConfig {
 
     private final LogoutAuditHandler logoutAuditHandler;
 
+    private final Environment environment;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {        
         return http
@@ -62,16 +65,22 @@ public class SecurityConfig {
 
             .cors(Customizer.withDefaults())
 
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(
-                    "/", 
-                    "/error",
-                    "/actuator/health",
-                    "/privacy",
-                    "/terms"
-                ).permitAll()
-                .anyRequest().authenticated()
-            )
+            .authorizeHttpRequests(auth -> {
+                // The test login, only where its controller exists (DevLoginController).
+                if (environment.matchesProfiles("dev")) {
+                    auth.requestMatchers(DevLoginController.PATH).permitAll();
+                }
+
+                auth
+                    .requestMatchers(
+                        "/",
+                        "/error",
+                        "/actuator/health",
+                        "/privacy",
+                        "/terms"
+                    ).permitAll()
+                    .anyRequest().authenticated();
+            })
             
             .exceptionHandling(exception -> exception
 

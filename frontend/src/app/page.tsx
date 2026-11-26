@@ -56,7 +56,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]">
+    <div className="flex flex-col min-h-[calc(100dvh-56px)]">
       <main className="flex-1 flex items-center justify-center px-6">
         <div className="max-w-lg text-center">
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
