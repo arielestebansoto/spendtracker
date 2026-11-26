@@ -5,9 +5,9 @@ export const floatingButtonClass =
   "fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition";
 
 // A round "+" centered at the bottom that goes to the new spend page. Rendered by each page that
-// shows it (the spends list and the detail page), not by the root layout: from the layout it did
-// not stay fixed on iPhone Safari, while the same button inside the page did.
-// Pages that render it leave room at the end (pb-24), so it never covers the last row.
+// shows it (the spends list and the detail page). Pages that render it leave room at the end
+// (pb-24), so it never covers the last row. It stays fixed only while no ancestor has a filter or
+// transform: see the colorScheme note in layout.tsx.
 export default function NewSpendButton() {
   return (
     <Link href="/spends/new" aria-label="New spend" className={floatingButtonClass}>

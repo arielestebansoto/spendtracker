@@ -75,6 +75,37 @@ To work on one side at a time:
 - Backend: `cd backend && ./gradlew bootRun`. Postgres must be running, and `DB_URL` must point to `localhost:5432`.
 - Frontend: `cd frontend && pnpm install && pnpm dev`.
 
+## Test on a phone
+
+A phone on the same Wi-Fi can use the app running on your machine. Google and GitHub cannot be used for it: Google rejects `http://` and IP address callbacks. With the `dev` profile, `GET /dev/login` logs in a fixed test user ("Dev Tester") instead, without any provider. The endpoint exists only with the `dev` profile.
+
+1. Find your machine's IP on the Wi-Fi network (on Windows, `ipconfig`, the IPv4 address of the Wi-Fi adapter). Below it is `<PC IP>`.
+2. On Windows, allow the two ports through the firewall, with the Wi-Fi network set to Private. In PowerShell as administrator:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "spendtracker dev" -Direction Inbound -Protocol TCP -LocalPort 3000,8080 -Action Allow -Profile Private
+   ```
+
+3. In `frontend/.env`:
+
+   ```dotenv
+   NEXT_PUBLIC_API_URL=http://<PC IP>:8080
+   # Only for `pnpm dev`: Next.js blocks its dev resources for hosts other than localhost, and the
+   # page stays loading on the phone.
+   ALLOWED_DEV_ORIGINS=<PC IP>
+   ```
+4. In the root `.env`:
+
+   ```dotenv
+   OAUTH2_SUCCESS_URL=http://<PC IP>:3000
+   CORS_ALLOWED_ORIGINS=http://<PC IP>:3000
+   ```
+
+5. Rebuild and start everything (step 3 above). The frontend must be rebuilt, since `NEXT_PUBLIC_API_URL` is baked in at build time.
+6. On the phone, open `http://<PC IP>:8080/dev/login`. It logs you in and opens the app.
+
+While these values point to the IP, use `http://<PC IP>:3000` on your machine too. Set them back to `localhost` when you are done. The camera works over plain `http://`: the receipt camera button is a file input, not a live camera stream.
+
 ## API docs
 
 With the `dev` profile, the backend serves its OpenAPI spec at <http://localhost:8080/v3/api-docs> and Swagger UI at <http://localhost:8080/swagger-ui.html>. Other profiles, prod included, serve neither, since they describe the whole API surface.

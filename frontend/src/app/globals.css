@@ -30,3 +30,13 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* On touch screens, iPhone zooms into a form field whose text is smaller than 16px when it is tapped,
+   and the page stays zoomed. Unlayered, so it wins over Tailwind's text-sm on the fields. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
