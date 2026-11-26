@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -295,6 +296,33 @@ class SpendRepositoryIT extends PostgresIntegrationTest {
 
 		// The manual Spend, the old upload and the other user's upload are not counted.
 		assertThat(uploads).isEqualTo(2);
+	}
+
+	@Test
+	void theSummaryOfAMonthIncludesItsFirstAndLastDay() {
+		YearMonth october = YearMonth.of(2026, 10);
+		UserApp owner = saveSpendOn(newSpend(SpendStatus.PROCESSED, null), october.atDay(1)).getUser();
+		saveSpendOn(spendOf(owner), october.atEndOfMonth());
+		saveSpendOn(spendOf(owner), october.atDay(1).minusDays(1));
+		saveSpendOn(spendOf(owner), october.atEndOfMonth().plusDays(1));
+
+		LocalDate start = october.atDay(1);
+		LocalDate end = october.atEndOfMonth();
+		BigDecimal total = spendRepository.sumAmountByUserIdAndStatusAndSpendDateBetween(
+			owner.getId(), SpendStatus.PROCESSED, start, end);
+		long count = spendRepository.countByUserIdAndStatusAndSpendDateBetween(
+			owner.getId(), SpendStatus.PROCESSED, start, end);
+
+		// September 30 and November 1 are left out.
+		assertThat(count).isEqualTo(2);
+		assertThat(total).isEqualByComparingTo("20.00");
+	}
+
+	private Spend saveSpendOn(Spend spend, LocalDate spendDate) {
+		spend.setSpendDate(spendDate);
+		Spend saved = spendRepository.save(spend);
+		entityManager.flush();
+		return saved;
 	}
 
 	private Spend saveSpendWithReceipt(Spend spend, String receiptKey) {

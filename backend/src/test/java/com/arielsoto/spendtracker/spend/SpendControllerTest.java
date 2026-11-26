@@ -1,7 +1,10 @@
 package com.arielsoto.spendtracker.spend;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -13,6 +16,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +37,7 @@ import com.arielsoto.spendtracker.receipt.ReceiptUploadRateLimitException;
 import com.arielsoto.spendtracker.receipt.ReceiptValidationException;
 import com.arielsoto.spendtracker.receipt.SpendNotRetryableException;
 import com.arielsoto.spendtracker.security.AuthenticatedUserService;
+import com.arielsoto.spendtracker.spend.dto.DashboardSummaryResponse;
 import com.arielsoto.spendtracker.spend.dto.SpendDetailResponse;
 import com.arielsoto.spendtracker.user.UserApp;
 import com.arielsoto.spendtracker.web.ApiExceptionHandler;
@@ -63,6 +69,37 @@ class SpendControllerTest {
             .build();
         // Lenient: a request rejected by @Valid never reaches the controller, so never asks for the user.
         lenient().when(authenticatedUserService.getCurrentUser(any())).thenReturn(user);
+    }
+
+    @Test
+    void summaryPassesTheRequestedMonthThrough() throws Exception {
+        when(spendService.getDashboardSummary(user.getId(), YearMonth.of(2026, 10), 5))
+            .thenReturn(new DashboardSummaryResponse(new BigDecimal("30.00"), 3, new BigDecimal("10.00"), List.of()));
+
+        mockMvc.perform(get("/api/v1/spends/summary").param("month", "2026-10"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.totalSpent").value(30.00))
+            .andExpect(jsonPath("$.spendCount").value(3));
+    }
+
+    @Test
+    void summaryWithoutAMonthLeavesItToTheService() throws Exception {
+        when(spendService.getDashboardSummary(eq(user.getId()), isNull(), eq(5)))
+            .thenReturn(new DashboardSummaryResponse(BigDecimal.ZERO, 0, BigDecimal.ZERO, List.of()));
+
+        mockMvc.perform(get("/api/v1/spends/summary"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.spendCount").value(0));
+    }
+
+    @Test
+    void summaryReturns400ForAnInvalidMonth() throws Exception {
+        mockMvc.perform(get("/api/v1/spends/summary").param("month", "2026-13"))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.status").value(400));
+
+        verifyNoInteractions(spendService);
     }
 
     @Test
