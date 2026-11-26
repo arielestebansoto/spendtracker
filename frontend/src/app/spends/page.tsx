@@ -53,6 +53,24 @@ const emptyFilters: FilterValues = {
   endDate: "",
 };
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// How many years, counting the current one, the summary's year select offers.
+const SUMMARY_YEARS = 5;
+
+// A month as yyyy-MM, the format the summary endpoint takes.
+function toMonthValue(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function currentMonthValue() {
+  const today = new Date();
+  return toMonthValue(today.getFullYear(), today.getMonth() + 1);
+}
+
 function formatCurrency(amount: number) {
   return `$${amount.toLocaleString()}`;
 }
@@ -108,6 +126,10 @@ function SpendsPageContent() {
   }, [searchParams, router]);
 
   const [summary, setSummary] = useState<SpendSummary | null>(null);
+  // The month the cards show, as yyyy-MM. The current month by default.
+  const [summaryMonth, setSummaryMonth] = useState(currentMonthValue);
+  // The poll bumps this counter to load the cards again.
+  const [summaryRefreshCount, setSummaryRefreshCount] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
 
   const [spends, setSpends] = useState<Spend[]>([]);
@@ -133,14 +155,28 @@ function SpendsPageContent() {
 
   useEffect(() => {
     if (!user) return;
-    fetchSpendSummary()
-      .then(setSummary)
-      .catch(() => {});
     apiFetch("/api/v1/categories")
       .then((res) => res.json())
       .then((data: Category[]) => setCategories(data))
       .catch(() => {});
   }, [user]);
+
+  // A response for a month no longer selected is dropped. A failed load keeps what is shown.
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+
+    fetchSpendSummary(summaryMonth)
+      .then((data) => {
+        if (!cancelled) setSummary(data);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, summaryMonth, summaryRefreshCount]);
 
   // A new set of filters (or a retry) starts the list over from the first page.
   useEffect(() => {
@@ -196,11 +232,16 @@ function SpendsPageContent() {
       if (version !== listVersionRef.current) return;
       setSpends(data.content);
       setTotalElements(data.totalElements);
-      setSummary(await fetchSpendSummary());
+      setSummaryRefreshCount((count) => count + 1);
     } catch {
       // The next poll tries again.
     }
   });
+
+  function changeSummaryMonth(month: string) {
+    setSummary(null);
+    setSummaryMonth(month);
+  }
 
   function startOver(filters: FilterValues) {
     listVersionRef.current += 1;
@@ -247,7 +288,10 @@ function SpendsPageContent() {
 
       <h1 className="text-2xl font-bold mb-6">Spends</h1>
 
-      <h2 className="text-sm font-medium text-muted-foreground mb-2">This month</h2>
+      <SummaryMonthPicker month={summaryMonth} onChange={changeSummaryMonth} />
+      {summary?.spendCount === 0 && (
+        <p className="text-sm text-muted-foreground mb-2">No spend in this month</p>
+      )}
       <div className="flex sm:grid sm:grid-cols-3 gap-3 sm:gap-4 overflow-x-auto sm:overflow-visible snap-x snap-mandatory mb-8 scrollbar-none">
         <SummaryCard label="Total spent" value={summary && formatCurrency(summary.totalSpent)} />
         <SummaryCard label="Spends" value={summary && String(summary.spendCount)} />
@@ -418,6 +462,69 @@ function SpendsPageContent() {
       )}
 
       <NewSpendButton />
+    </div>
+  );
+}
+
+// The "This month" heading, with a year and a month select next to it. Months after the
+// current one cannot be picked. On another month, the heading names it and a refresh button goes
+// back to the current one.
+function SummaryMonthPicker({ month, onChange }: { month: string; onChange: (month: string) => void }) {
+  const selectedYear = Number(month.slice(0, 4));
+  const selectedMonth = Number(month.slice(5));
+  const current = currentMonthValue();
+  const currentYear = Number(current.slice(0, 4));
+  const currentMonth = Number(current.slice(5));
+  const years = Array.from({ length: SUMMARY_YEARS }, (_, i) => currentYear - i);
+
+  function changeYear(year: number) {
+    // Moving to the current year from a later month of another year stops at the current month.
+    const newMonth = year === currentYear ? Math.min(selectedMonth, currentMonth) : selectedMonth;
+    onChange(toMonthValue(year, newMonth));
+  }
+
+  const heading = month === current ? "This month" : `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`;
+  const selectClassName = "px-2 py-1 rounded-lg border border-border bg-background text-sm";
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-2">
+      <h2 className="text-sm font-medium text-muted-foreground">{heading}</h2>
+      <div className="flex gap-2">
+        <select
+          aria-label="Summary month"
+          value={selectedMonth}
+          onChange={(e) => onChange(toMonthValue(selectedYear, Number(e.target.value)))}
+          className={selectClassName}
+        >
+          {MONTH_NAMES.map((name, i) => (
+            <option key={name} value={i + 1} disabled={selectedYear === currentYear && i + 1 > currentMonth}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Summary year"
+          value={selectedYear}
+          onChange={(e) => changeYear(Number(e.target.value))}
+          className={selectClassName}
+        >
+          {years.map((year) => (
+            <option key={year} value={year}>{year}</option>
+          ))}
+        </select>
+      </div>
+      {month !== current && (
+        <button
+          onClick={() => onChange(current)}
+          aria-label="Back to this month"
+          title="Back to this month"
+          className="p-1.5 rounded-lg border border-border hover:bg-accent transition"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

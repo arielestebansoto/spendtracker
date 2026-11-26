@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -165,12 +166,35 @@ class SpendServiceTest {
             userId, SpendStatus.PROCESSED, START, END, PageRequest.of(0, 5)
         )).thenReturn(new PageImpl<>(List.of()));
 
+        // No month: the current one, from the clock (October 2026).
         DashboardSummaryResponse summary =
-            spendService.getDashboardSummary(userId, START, END, 5);
+            spendService.getDashboardSummary(userId, null, 5);
 
         assertThat(summary.totalSpent()).isEqualByComparingTo("30.00");
         assertThat(summary.spendCount()).isEqualTo(3);
         assertThat(summary.averageSpend()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void dashboardSummaryOfAGivenMonthCoversItsFirstToItsLastDay() {
+        UUID userId = UUID.randomUUID();
+        LocalDate february1 = LocalDate.of(2024, 2, 1);
+        LocalDate february29 = LocalDate.of(2024, 2, 29);
+        when(spendRepository.sumAmountByUserIdAndStatusAndSpendDateBetween(
+            userId, SpendStatus.PROCESSED, february1, february29
+        )).thenReturn(BigDecimal.ZERO);
+        when(spendRepository.findTopNByUserIdAndStatusAndSpendDateBetween(
+            userId, SpendStatus.PROCESSED, february1, february29, PageRequest.of(0, 5)
+        )).thenReturn(new PageImpl<>(List.of()));
+
+        DashboardSummaryResponse summary =
+            spendService.getDashboardSummary(userId, YearMonth.of(2024, 2), 5);
+
+        verify(spendRepository).countByUserIdAndStatusAndSpendDateBetween(
+            userId, SpendStatus.PROCESSED, february1, february29
+        );
+        assertThat(summary.spendCount()).isZero();
+        assertThat(summary.averageSpend()).isEqualByComparingTo("0");
     }
 
     @Test

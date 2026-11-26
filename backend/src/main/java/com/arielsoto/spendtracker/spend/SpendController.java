@@ -52,17 +52,16 @@ public class SpendController {
     @GetMapping("/summary")
     public DashboardSummaryResponse getSummary(
         @RequestParam(name = "recentLimit", defaultValue = "5") int recentLimit,
+        // ISO yyyy-MM, e.g. 2026-10. Without it, the current month.
+        @RequestParam(name = "month", required = false) YearMonth month,
         OAuth2AuthenticationToken authentication
     ) {
         UserApp user = authenticatedUserService
             .getCurrentUser(authentication);
 
-        YearMonth now = YearMonth.now();
-
         return spendService.getDashboardSummary(
             user.getId(),
-            now.atDay(1),
-            now.atEndOfMonth(),
+            month,
             recentLimit
         );
     }

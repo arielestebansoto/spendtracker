@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -189,12 +190,16 @@ public class SpendService {
         spendRepository.deleteAll(spends);
     }
 
+    /** Totals of the user's processed Spends in the given month, or the current one when it is null. */
     public DashboardSummaryResponse getDashboardSummary(
         UUID userId,
-        LocalDate startDate,
-        LocalDate endDate,
+        YearMonth month,
         int recentLimit
     ) {
+        YearMonth summaryMonth = month != null ? month : YearMonth.now(clock);
+        LocalDate startDate = summaryMonth.atDay(1);
+        LocalDate endDate = summaryMonth.atEndOfMonth();
+
         BigDecimal total = spendRepository
             .sumAmountByUserIdAndStatusAndSpendDateBetween(
                 userId, SpendStatus.PROCESSED, startDate, endDate
