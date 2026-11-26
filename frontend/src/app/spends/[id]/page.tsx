@@ -8,6 +8,7 @@ import { apiFetch } from "@/app/lib/api";
 import LoadingState from "@/app/components/LoadingState";
 import ErrorState from "@/app/components/ErrorState";
 import Toast from "@/app/components/Toast";
+import NewSpendButton from "@/app/components/NewSpendButton";
 import DeleteSpendModal from "@/app/components/DeleteSpendModal";
 import SpendStatusBadge from "@/app/components/SpendStatusBadge";
 import { SpendStatus, isInProgress, usePollWhile } from "@/app/lib/spendStatus";
@@ -185,7 +186,7 @@ export default function ViewSpendPage() {
   if (isLoading || !spend) return <LoadingState />;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <div className="max-w-2xl mx-auto px-4 pt-8 pb-24">
       {createdMessage && <Toast message={createdMessage} onDismiss={dismissCreatedToast} />}
 
       {deleteFailed && (
@@ -365,6 +366,8 @@ export default function ViewSpendPage() {
           </div>
         )}
       </div>
+
+      <NewSpendButton />
     </div>
   );
 }
