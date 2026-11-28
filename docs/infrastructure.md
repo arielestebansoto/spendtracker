@@ -92,3 +92,59 @@ An expired session fails with "Token has expired" or "The SSO session has expire
 - **`get-caller-identity` shows `dev-spendtracker`**: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` are set in the shell (for example after `source .env`) and they take precedence over the profile. `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY` or open a new terminal. `.env` is for Docker Compose only; never source it.
 - **The account does not show in the portal**: the assignment (step 6) is missing or still in progress. Refresh the portal after it finishes.
 - The account ID is not secret, but keep it out of the repo: Terraform reads it with `data "aws_caller_identity"`.
+
+## Terraform state bucket
+
+Terraform keeps the mapping between the code and the real resources (IDs, attributes) in a state file. It lives in S3, so it survives a lost laptop, CI can read it for `plan`, and a lock file stops two applies at once. The state can hold sensitive values in plain text, so it never goes in git and the bucket is private, encrypted and versioned.
+
+One bucket per AWS account, shared by every project, one folder per project and root:
+
+```
+s3://tfstate-<account-id>/
+  spendtracker/global/terraform.tfstate
+  spendtracker/dev/terraform.tfstate
+  spendtracker/prod/terraform.tfstate
+```
+
+The bucket is created once by hand, not by Terraform: Terraform needs it to store its own state. Cost is a few KB and requests, cents at most.
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Name | `tfstate-<account-id>` | Bucket names are global; the account ID makes it unique |
+| Block public access | All four on | Never public |
+| Versioning | Enabled | Every apply writes a new version: a broken state can be restored |
+| Encryption | SSE-S3 (`AES256`) | Free; a KMS key would cost $1/month for no gain here |
+| Lifecycle | Noncurrent versions expire after 90 days, keeping the 10 newest | Bounded history |
+| Bucket policy | Deny when `aws:SecureTransport` is `false` | HTTPS only |
+
+Locking uses S3 itself (`use_lockfile = true`, Terraform 1.10+), which writes `<key>.tflock` next to the state. No DynamoDB table.
+
+### Creating it
+
+With the admin profile active (`export AWS_PROFILE=<name>-admin`). Type the variable by hand: a line pasted from Windows into WSL can carry a trailing `\r` into the value, and the policy JSON then fails with "Invalid control character". `printf '%q\n' "$BUCKET"` shows hidden characters; the name must be 20 characters (`echo "${#BUCKET}"`).
+
+```bash
+BUCKET="tfstate-$(aws sts get-caller-identity --query Account --output text | tr -cd '0-9')"
+
+aws s3api create-bucket --bucket "$BUCKET" --region us-east-1   # other regions also need --create-bucket-configuration LocationConstraint=<region>
+
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
+
+aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration \
+  '{"Rules":[{"ID":"expire-old-state-versions","Status":"Enabled","Filter":{},"NoncurrentVersionExpiration":{"NoncurrentDays":90,"NewerNoncurrentVersions":10}}]}'
+
+cat > ~/tfstate-policy.json <<EOF
+{"Version":"2012-10-17","Statement":[{"Sid":"DenyInsecureTransport","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::${BUCKET}","arn:aws:s3:::${BUCKET}/*"],"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}
+EOF
+python3 -m json.tool ~/tfstate-policy.json   # must print the policy, not an error
+aws s3api put-bucket-policy --bucket "$BUCKET" --policy "file://$HOME/tfstate-policy.json"
+rm ~/tfstate-policy.json
+```
+
+Check: `get-bucket-versioning` shows `Enabled`, `get-public-access-block` four `true`, `get-bucket-encryption` `AES256`, `get-bucket-lifecycle-configuration` the rule, `get-bucket-policy` the deny.
