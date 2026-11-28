@@ -57,6 +57,11 @@ http {
     access_log /dev/stdout main;
     error_log /dev/stderr warn;
 
+    # Docker's embedded DNS. With `proxy_pass $variable` (conf.d), nginx resolves `backend` and
+    # `frontend` at request time and caches the answer for 10s, instead of once at startup.
+    # See "Upstream addresses" below.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
     proxy_connect_timeout 5s;
     proxy_send_timeout 60s;
     proxy_read_timeout 60s;
@@ -133,28 +138,34 @@ server {
     ssl_certificate     /etc/letsencrypt/live/spendtracker.arielsoto.dev/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/spendtracker.arielsoto.dev/privkey.pem;
 
+    # Variables, not literal hosts: nginx resolves them on each request through the `resolver`
+    # in nginx.conf, so a redeploy that changes the containers' IPs does not break the proxy.
+    # No URI part after the variable, so the original request URI is passed unchanged.
+    set $frontend_upstream http://frontend:3000;
+    set $backend_upstream http://backend:8080;
+
     location / {
         limit_req zone=frontend burst=50 nodelay;
 
-        proxy_pass http://frontend:3000;
+        proxy_pass $frontend_upstream;
     }
 
     location /api/login {
         limit_req zone=auth burst=5 nodelay;
 
-        proxy_pass http://backend:8080;
+        proxy_pass $backend_upstream;
     }
 
     location /oauth2 {
         limit_req zone=auth burst=5 nodelay;
 
-        proxy_pass http://backend:8080;
+        proxy_pass $backend_upstream;
     }
 
     location /login/oauth2 {
         limit_req zone=auth burst=5 nodelay;
 
-        proxy_pass http://backend:8080;
+        proxy_pass $backend_upstream;
     }
 
     # Receipt upload: own rate limit and body size (5 MB receipt + multipart overhead).
@@ -163,13 +174,13 @@ server {
         limit_req zone=upload burst=3 nodelay;
         client_max_body_size 6M;
 
-        proxy_pass http://backend:8080;
+        proxy_pass $backend_upstream;
     }
 
     location /api {
         limit_req zone=api burst=20 nodelay;
 
-        proxy_pass http://backend:8080;
+        proxy_pass $backend_upstream;
 
         # Buffering when OCR async, heavy responses:
         # proxy_buffering on;
@@ -179,6 +190,22 @@ server {
     }
 }
 ```
+
+## Upstream addresses
+
+Every deploy recreates the `backend` and `frontend` containers, and Docker may give them different IPs on the `web` network (they can even swap). With a literal `proxy_pass http://backend:8080`, nginx looks the name up once, at startup or reload, and keeps that IP until the next reload. After a deploy that changed the IPs, every request goes to an old address and fails with **502**, while the deploy is green and both containers are healthy. The nginx error log shows it:
+
+```
+connect() failed (111: Connection refused) while connecting to upstream, ... upstream: "http://172.19.0.3:3000/"
+```
+
+`Connection refused` means something answers at that IP but not on that port: another container now has it. Compare with the containers' current IPs:
+
+```bash
+docker inspect -f '{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' spendtracker-backend-1 spendtracker-frontend-1
+```
+
+The config above avoids it: `proxy_pass $variable` plus `resolver 127.0.0.11` (Docker's DNS, reachable because nginx is on the `web` network) makes nginx resolve the names on each request, cached for 10s. If an nginx still runs a config with literal hosts, `nginx -s reload` fixes it until the next IP change (happened on 2026-11-22, after deploying `f8285069`).
 
 ## Applying a change
 
